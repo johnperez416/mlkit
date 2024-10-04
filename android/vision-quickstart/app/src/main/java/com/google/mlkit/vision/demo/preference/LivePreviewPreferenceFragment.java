@@ -40,7 +40,7 @@ public class LivePreviewPreferenceFragment extends PreferenceFragment {
 
     addPreferencesFromResource(R.xml.preference_live_preview_quickstart);
     setUpCameraPreferences();
-    setUpFaceDetectionPreferences();
+    setUpFaceDetectionPreferencesForStreamMode();
   }
 
   void setUpCameraPreferences() {
@@ -122,12 +122,7 @@ public class LivePreviewPreferenceFragment extends PreferenceFragment {
     }
   }
 
-  private void setUpFaceDetectionPreferences() {
-    setUpListPreference(R.string.pref_key_live_preview_face_detection_landmark_mode);
-    setUpListPreference(R.string.pref_key_live_preview_face_detection_contour_mode);
-    setUpListPreference(R.string.pref_key_live_preview_face_detection_classification_mode);
-    setUpListPreference(R.string.pref_key_live_preview_face_detection_performance_mode);
-
+  private void setUpFaceDetectionPreferencesForStreamMode() {
     EditTextPreference minFaceSizePreference =
         (EditTextPreference)
             findPreference(getString(R.string.pref_key_live_preview_face_detection_min_face_size));
@@ -145,20 +140,9 @@ public class LivePreviewPreferenceFragment extends PreferenceFragment {
           }
 
           Toast.makeText(
-                  getActivity(), R.string.pref_toast_invalid_min_face_size, Toast.LENGTH_LONG)
+                  this.getActivity(), R.string.pref_toast_invalid_min_face_size, Toast.LENGTH_LONG)
               .show();
           return false;
-        });
-  }
-
-  private void setUpListPreference(@StringRes int listPreferenceKeyId) {
-    ListPreference listPreference = (ListPreference) findPreference(getString(listPreferenceKeyId));
-    listPreference.setSummary(listPreference.getEntry());
-    listPreference.setOnPreferenceChangeListener(
-        (preference, newValue) -> {
-          int index = listPreference.findIndexOfValue((String) newValue);
-          listPreference.setSummary(listPreference.getEntries()[index]);
-          return true;
         });
   }
 }

@@ -17,8 +17,6 @@
 package com.google.mlkit.samples.nl.translate.java;
 
 import android.annotation.SuppressLint;
-import androidx.lifecycle.Observer;
-import androidx.lifecycle.ViewModelProviders;
 import android.os.Bundle;
 import androidx.fragment.app.Fragment;
 import android.text.Editable;
@@ -35,10 +33,15 @@ import android.widget.TextView;
 import android.widget.ToggleButton;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.lifecycle.Observer;
+import androidx.lifecycle.ViewModelProviders;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.mlkit.samples.nl.translate.R;
 import java.util.List;
 
+/***
+ * Fragment view for handling translations
+ */
 public class TranslateFragment extends Fragment {
 
   public static TranslateFragment newInstance() {
@@ -117,10 +120,15 @@ public class TranslateFragment extends Fragment {
         new View.OnClickListener() {
           @Override
           public void onClick(View v) {
+            String targetText = targetTextView.getText().toString();
             setProgressText(targetTextView);
             int sourceLangPosition = sourceLangSelector.getSelectedItemPosition();
             sourceLangSelector.setSelection(targetLangSelector.getSelectedItemPosition());
             targetLangSelector.setSelection(sourceLangPosition);
+
+            // Also update srcTextView with targetText
+            srcTextView.setText(targetText);
+            viewModel.sourceText.setValue(targetText);
           }
         });
 
@@ -189,12 +197,15 @@ public class TranslateFragment extends Fragment {
             String output =
                 getContext().getString(R.string.downloaded_models_label, translateRemoteModels);
             downloadedModelsTextView.setText(output);
+
             sourceSyncButton.setChecked(
-                translateRemoteModels.contains(
-                    adapter.getItem(sourceLangSelector.getSelectedItemPosition()).getCode()));
+                !viewModel.requiresModelDownload(
+                    adapter.getItem(sourceLangSelector.getSelectedItemPosition()),
+                    translateRemoteModels));
             targetSyncButton.setChecked(
-                translateRemoteModels.contains(
-                    adapter.getItem(targetLangSelector.getSelectedItemPosition()).getCode()));
+                !viewModel.requiresModelDownload(
+                    adapter.getItem(targetLangSelector.getSelectedItemPosition()),
+                    translateRemoteModels));
           }
         });
   }

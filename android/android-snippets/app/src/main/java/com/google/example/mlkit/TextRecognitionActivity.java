@@ -29,7 +29,7 @@ import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
-import com.google.mlkit.vision.text.TextRecognizerOptions;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 public class TextRecognitionActivity extends AppCompatActivity {
 
@@ -62,6 +62,9 @@ public class TextRecognitionActivity extends AppCompatActivity {
                                         // ...
                                         for (Text.Element element: line.getElements()) {
                                             // ...
+                                            for (Text.Symbol symbol: element.getSymbols()) {
+                                                // ...
+                                            }
                                         }
                                     }
                                 }
@@ -95,6 +98,11 @@ public class TextRecognitionActivity extends AppCompatActivity {
                     String elementText = element.getText();
                     Point[] elementCornerPoints = element.getCornerPoints();
                     Rect elementFrame = element.getBoundingBox();
+                    for (Text.Symbol symbol : element.getSymbols()) {
+                        String symbolText = symbol.getText();
+                        Point[] symbolCornerPoints = symbol.getCornerPoints();
+                        Rect symbolFrame = symbol.getBoundingBox();
+                    }
                 }
             }
         }

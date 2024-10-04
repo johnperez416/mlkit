@@ -19,7 +19,6 @@ package com.google.mlkit.vision.demo.kotlin.posedetector
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import com.google.common.primitives.Ints
 import com.google.mlkit.vision.demo.GraphicOverlay
 import com.google.mlkit.vision.demo.GraphicOverlay.Graphic
 import com.google.mlkit.vision.pose.Pose
@@ -28,8 +27,9 @@ import java.lang.Math.max
 import java.lang.Math.min
 import java.util.Locale
 
-/** Draw the detected pose in preview.  */
-class PoseGraphic internal constructor(
+/** Draw the detected pose in preview. */
+class PoseGraphic
+internal constructor(
   overlay: GraphicOverlay,
   private val pose: Pose,
   private val showInFrameLikelihood: Boolean,
@@ -71,9 +71,9 @@ class PoseGraphic internal constructor(
     // Draw pose classification text.
     val classificationX = POSE_CLASSIFICATION_TEXT_SIZE * 0.5f
     for (i in poseClassification.indices) {
-      val classificationY = canvas.height - (
-        POSE_CLASSIFICATION_TEXT_SIZE * 1.5f * (poseClassification.size - i).toFloat()
-        )
+      val classificationY =
+        canvas.height -
+          (POSE_CLASSIFICATION_TEXT_SIZE * 1.5f * (poseClassification.size - i).toFloat())
       canvas.drawText(
         poseClassification[i],
         classificationX,
@@ -90,6 +90,18 @@ class PoseGraphic internal constructor(
         zMax = max(zMax, landmark.position3D.z)
       }
     }
+
+    val nose = pose.getPoseLandmark(PoseLandmark.NOSE)
+    val lefyEyeInner = pose.getPoseLandmark(PoseLandmark.LEFT_EYE_INNER)
+    val lefyEye = pose.getPoseLandmark(PoseLandmark.LEFT_EYE)
+    val leftEyeOuter = pose.getPoseLandmark(PoseLandmark.LEFT_EYE_OUTER)
+    val rightEyeInner = pose.getPoseLandmark(PoseLandmark.RIGHT_EYE_INNER)
+    val rightEye = pose.getPoseLandmark(PoseLandmark.RIGHT_EYE)
+    val rightEyeOuter = pose.getPoseLandmark(PoseLandmark.RIGHT_EYE_OUTER)
+    val leftEar = pose.getPoseLandmark(PoseLandmark.LEFT_EAR)
+    val rightEar = pose.getPoseLandmark(PoseLandmark.RIGHT_EAR)
+    val leftMouth = pose.getPoseLandmark(PoseLandmark.LEFT_MOUTH)
+    val rightMouth = pose.getPoseLandmark(PoseLandmark.RIGHT_MOUTH)
 
     val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
     val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
@@ -115,8 +127,20 @@ class PoseGraphic internal constructor(
     val leftFootIndex = pose.getPoseLandmark(PoseLandmark.LEFT_FOOT_INDEX)
     val rightFootIndex = pose.getPoseLandmark(PoseLandmark.RIGHT_FOOT_INDEX)
 
+    // Face
+    drawLine(canvas, nose, lefyEyeInner, whitePaint)
+    drawLine(canvas, lefyEyeInner, lefyEye, whitePaint)
+    drawLine(canvas, lefyEye, leftEyeOuter, whitePaint)
+    drawLine(canvas, leftEyeOuter, leftEar, whitePaint)
+    drawLine(canvas, nose, rightEyeInner, whitePaint)
+    drawLine(canvas, rightEyeInner, rightEye, whitePaint)
+    drawLine(canvas, rightEye, rightEyeOuter, whitePaint)
+    drawLine(canvas, rightEyeOuter, rightEar, whitePaint)
+    drawLine(canvas, leftMouth, rightMouth, whitePaint)
+
     drawLine(canvas, leftShoulder, rightShoulder, whitePaint)
     drawLine(canvas, leftHip, rightHip, whitePaint)
+
     // Left body
     drawLine(canvas, leftShoulder, leftElbow, leftPaint)
     drawLine(canvas, leftElbow, leftWrist, leftPaint)
@@ -129,6 +153,7 @@ class PoseGraphic internal constructor(
     drawLine(canvas, leftIndex, leftPinky, leftPaint)
     drawLine(canvas, leftAnkle, leftHeel, leftPaint)
     drawLine(canvas, leftHeel, leftFootIndex, leftPaint)
+
     // Right body
     drawLine(canvas, rightShoulder, rightElbow, rightPaint)
     drawLine(canvas, rightElbow, rightWrist, rightPaint)
@@ -156,7 +181,16 @@ class PoseGraphic internal constructor(
   }
 
   internal fun drawPoint(canvas: Canvas, landmark: PoseLandmark, paint: Paint) {
-    val point = landmark.position
+    val point = landmark.position3D
+    updatePaintColorByZValue(
+      paint,
+      canvas,
+      visualizeZ,
+      rescaleZForVisualization,
+      point.z,
+      zMin,
+      zMax
+    )
     canvas.drawCircle(translateX(point.x), translateY(point.y), DOT_RADIUS, paint)
   }
 
@@ -166,60 +200,28 @@ class PoseGraphic internal constructor(
     endLandmark: PoseLandmark?,
     paint: Paint
   ) {
-    // When visualizeZ is true, sets up the paint to draw body line in different colors based on
-    // their z values.
-    if (visualizeZ) {
-      val start = startLandmark!!.position3D
-      val end = endLandmark!!.position3D
+    val start = startLandmark!!.position3D
+    val end = endLandmark!!.position3D
 
-      // Gets the range of z value.
-      val zLowerBoundInScreenPixel: Float
-      val zUpperBoundInScreenPixel: Float
+    // Gets average z for the current body line
+    val avgZInImagePixel = (start.z + end.z) / 2
+    updatePaintColorByZValue(
+      paint,
+      canvas,
+      visualizeZ,
+      rescaleZForVisualization,
+      avgZInImagePixel,
+      zMin,
+      zMax
+    )
 
-      if (rescaleZForVisualization) {
-        zLowerBoundInScreenPixel = min(-0.001f, scale(zMin))
-        zUpperBoundInScreenPixel = max(0.001f, scale(zMax))
-      } else {
-        // By default, assume the range of z value in screen pixel is [-canvasWidth, canvasWidth].
-        val defaultRangeFactor = 1f
-        zLowerBoundInScreenPixel = -defaultRangeFactor * canvas.width
-        zUpperBoundInScreenPixel = defaultRangeFactor * canvas.width
-      }
-
-      // Gets average z for the current body line
-      val avgZInImagePixel = (start.z + end.z) / 2
-      val zInScreenPixel = scale(avgZInImagePixel)
-
-      if (zInScreenPixel < 0) {
-        // Sets up the paint to draw the body line in red if it is in front of the z origin.
-        // Maps values within [zLowerBoundInScreenPixel, 0) to [255, 0) and use it to control the
-        // color. The larger the value is, the more red it will be.
-        var v = (zInScreenPixel / zLowerBoundInScreenPixel * 255).toInt()
-        v = Ints.constrainToRange(v, 0, 255)
-        paint.setARGB(255, 255, 255 - v, 255 - v)
-      } else {
-        // Sets up the paint to draw the body line in blue if it is behind the z origin.
-        // Maps values within [0, zUpperBoundInScreenPixel] to [0, 255] and use it to control the
-        // color. The larger the value is, the more blue it will be.
-        var v = (zInScreenPixel / zUpperBoundInScreenPixel * 255).toInt()
-        v = Ints.constrainToRange(v, 0, 255)
-        paint.setARGB(255, 255 - v, 255 - v, 255)
-      }
-
-      canvas.drawLine(
-        translateX(start.x),
-        translateY(start.y),
-        translateX(end.x),
-        translateY(end.y),
-        paint
-      )
-    } else {
-      val start = startLandmark!!.position
-      val end = endLandmark!!.position
-      canvas.drawLine(
-        translateX(start.x), translateY(start.y), translateX(end.x), translateY(end.y), paint
-      )
-    }
+    canvas.drawLine(
+      translateX(start.x),
+      translateY(start.y),
+      translateX(end.x),
+      translateY(end.y),
+      paint
+    )
   }
 
   companion object {

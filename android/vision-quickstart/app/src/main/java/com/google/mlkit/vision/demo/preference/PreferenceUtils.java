@@ -31,6 +31,7 @@ import com.google.mlkit.vision.demo.CameraSource;
 import com.google.mlkit.vision.demo.CameraSource.SizePair;
 import com.google.mlkit.vision.demo.R;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
+import com.google.mlkit.vision.facemesh.FaceMeshDetectorOptions;
 import com.google.mlkit.vision.objects.ObjectDetectorOptionsBase.DetectorMode;
 import com.google.mlkit.vision.objects.custom.CustomObjectDetectorOptions;
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions;
@@ -95,8 +96,7 @@ public class PreferenceUtils {
 
   public static boolean shouldHideDetectionInfo(Context context) {
     SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String prefKey =
-        context.getString(R.string.pref_key_info_hide);
+    String prefKey = context.getString(R.string.pref_key_info_hide);
     return sharedPreferences.getBoolean(prefKey, false);
   }
 
@@ -185,7 +185,7 @@ public class PreferenceUtils {
     return builder.build();
   }
 
-  public static FaceDetectorOptions getFaceDetectorOptionsForLivePreview(Context context) {
+  public static FaceDetectorOptions getFaceDetectorOptions(Context context) {
     int landmarkMode =
         getModeTypePreferenceValue(
             context,
@@ -236,14 +236,22 @@ public class PreferenceUtils {
             context,
             R.string.pref_key_live_preview_pose_detection_performance_mode,
             POSE_DETECTOR_PERFORMANCE_MODE_FAST);
+    boolean preferGPU = preferGPUForPoseDetection(context);
     if (performanceMode == POSE_DETECTOR_PERFORMANCE_MODE_FAST) {
-      return new PoseDetectorOptions.Builder()
-          .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
-          .build();
+      PoseDetectorOptions.Builder builder =
+          new PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE);
+      if (preferGPU) {
+        builder.setPreferredHardwareConfigs(PoseDetectorOptions.CPU_GPU);
+      }
+      return builder.build();
     } else {
-      return new AccuratePoseDetectorOptions.Builder()
-          .setDetectorMode(AccuratePoseDetectorOptions.STREAM_MODE)
-          .build();
+      AccuratePoseDetectorOptions.Builder builder =
+          new AccuratePoseDetectorOptions.Builder()
+              .setDetectorMode(AccuratePoseDetectorOptions.STREAM_MODE);
+      if (preferGPU) {
+        builder.setPreferredHardwareConfigs(AccuratePoseDetectorOptions.CPU_GPU);
+      }
+      return builder.build();
     }
   }
 
@@ -253,15 +261,53 @@ public class PreferenceUtils {
             context,
             R.string.pref_key_still_image_pose_detection_performance_mode,
             POSE_DETECTOR_PERFORMANCE_MODE_FAST);
+    boolean preferGPU = preferGPUForPoseDetection(context);
     if (performanceMode == POSE_DETECTOR_PERFORMANCE_MODE_FAST) {
-      return new PoseDetectorOptions.Builder()
-          .setDetectorMode(PoseDetectorOptions.SINGLE_IMAGE_MODE)
-          .build();
+      PoseDetectorOptions.Builder builder =
+          new PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.SINGLE_IMAGE_MODE);
+      if (preferGPU) {
+        builder.setPreferredHardwareConfigs(PoseDetectorOptions.CPU_GPU);
+      }
+      return builder.build();
     } else {
-      return new AccuratePoseDetectorOptions.Builder()
-          .setDetectorMode(AccuratePoseDetectorOptions.SINGLE_IMAGE_MODE)
-          .build();
+      AccuratePoseDetectorOptions.Builder builder =
+          new AccuratePoseDetectorOptions.Builder()
+              .setDetectorMode(AccuratePoseDetectorOptions.SINGLE_IMAGE_MODE);
+      if (preferGPU) {
+        builder.setPreferredHardwareConfigs(AccuratePoseDetectorOptions.CPU_GPU);
+      }
+      return builder.build();
     }
+  }
+
+  public static boolean shouldEnableAutoZoom(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_enable_auto_zoom);
+    return sharedPreferences.getBoolean(prefKey, true);
+  }
+
+  public static boolean shouldGroupRecognizedTextInBlocks(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_group_recognized_text_in_blocks);
+    return sharedPreferences.getBoolean(prefKey, false);
+  }
+
+  public static boolean showLanguageTag(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_show_language_tag);
+    return sharedPreferences.getBoolean(prefKey, false);
+  }
+
+  public static boolean shouldShowTextConfidence(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_show_text_confidence);
+    return sharedPreferences.getBoolean(prefKey, false);
+  }
+
+  public static boolean preferGPUForPoseDetection(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_pose_detector_prefer_gpu);
+    return sharedPreferences.getBoolean(prefKey, true);
   }
 
   public static boolean shouldShowPoseDetectionInFrameLikelihoodLivePreview(Context context) {
@@ -298,8 +344,7 @@ public class PreferenceUtils {
 
   public static boolean shouldSegmentationEnableRawSizeMask(Context context) {
     SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
-    String prefKey =
-        context.getString(R.string.pref_key_segmentation_raw_size_mask);
+    String prefKey = context.getString(R.string.pref_key_segmentation_raw_size_mask);
     return sharedPreferences.getBoolean(prefKey, false);
   }
 
@@ -319,6 +364,13 @@ public class PreferenceUtils {
     SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
     String prefKey = context.getString(R.string.pref_key_camera_live_viewport);
     return sharedPreferences.getBoolean(prefKey, false);
+  }
+
+  public static int getFaceMeshUseCase(Context context) {
+    SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context);
+    String prefKey = context.getString(R.string.pref_key_face_mesh_use_case);
+    return Integer.parseInt(
+        sharedPreferences.getString(prefKey, String.valueOf(FaceMeshDetectorOptions.FACE_MESH)));
   }
 
   private PreferenceUtils() {}

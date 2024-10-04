@@ -14,6 +14,7 @@
 //  limitations under the License.
 //
 
+import MLImage
 import MLKit
 import UIKit
 
@@ -128,8 +129,10 @@ class ViewController: UIViewController, UINavigationControllerDelegate {
       switch rowIndex {
       case .detectFaceOnDevice:
         detectFaces(image: imageView.image)
-      case .detectTextOnDevice:
-        detectTextOnDevice(image: imageView.image)
+      case .detectTextOnDevice, .detectTextChineseOnDevice, .detectTextDevanagariOnDevice,
+        .detectTextJapaneseOnDevice, .detectTextKoreanOnDevice:
+        detectTextOnDevice(
+          image: imageView.image, detectorType: rowIndex)
       case .detectBarcodeOnDevice:
         detectBarcodes(image: imageView.image)
       case .detectImageLabelsOnDevice:
@@ -788,7 +791,7 @@ extension ViewController {
       imageView.image = maskedImage
 
       strongSelf.annotationOverlayView.addSubview(imageView)
-      strongSelf.resultsText = "Segmentation succeeded"
+      strongSelf.resultsText = "Segmentation Succeeded"
       strongSelf.showResults()
     }
   }
@@ -800,12 +803,14 @@ extension ViewController {
   func detectPose(image: UIImage?) {
     guard let image = image else { return }
 
-    // Initialize a `VisionImage` object with the given `UIImage`.
-    let visionImage = VisionImage(image: image)
-    visionImage.orientation = image.imageOrientation
+    guard let inputImage = MLImage(image: image) else {
+      print("Failed to create MLImage from UIImage.")
+      return
+    }
+    inputImage.orientation = image.imageOrientation
 
     if let poseDetector = self.poseDetector {
-      poseDetector.process(visionImage) { poses, error in
+      poseDetector.process(inputImage) { poses, error in
         guard error == nil, let poses = poses, !poses.isEmpty else {
           let errorString = error?.localizedDescription ?? Constants.detectionNoResultsMessage
           self.resultsText = "Pose detection failed with error: \(errorString)"
@@ -956,11 +961,24 @@ extension ViewController {
   /// On-Device text recognizer.
   ///
   /// - Parameter image: The image.
-  func detectTextOnDevice(image: UIImage?) {
+  private func detectTextOnDevice(image: UIImage?, detectorType: DetectorPickerRow) {
     guard let image = image else { return }
 
     // [START init_text]
-    let onDeviceTextRecognizer = TextRecognizer.textRecognizer()
+    var options: CommonTextRecognizerOptions
+    if detectorType == .detectTextChineseOnDevice {
+      options = ChineseTextRecognizerOptions.init()
+    } else if detectorType == .detectTextDevanagariOnDevice {
+      options = DevanagariTextRecognizerOptions.init()
+    } else if detectorType == .detectTextJapaneseOnDevice {
+      options = JapaneseTextRecognizerOptions.init()
+    } else if detectorType == .detectTextKoreanOnDevice {
+      options = KoreanTextRecognizerOptions.init()
+    } else {
+      options = TextRecognizerOptions.init()
+    }
+
+    let onDeviceTextRecognizer = TextRecognizer.textRecognizer(options: options)
     // [END init_text]
 
     // Initialize a `VisionImage` object with the given `UIImage`.
@@ -1090,6 +1108,10 @@ private enum DetectorPickerRow: Int {
 
   case
     detectTextOnDevice,
+    detectTextChineseOnDevice,
+    detectTextDevanagariOnDevice,
+    detectTextJapaneseOnDevice,
+    detectTextKoreanOnDevice,
     detectBarcodeOnDevice,
     detectImageLabelsOnDevice,
     detectImageLabelsCustomOnDevice,
@@ -1105,7 +1127,7 @@ private enum DetectorPickerRow: Int {
     detectPoseAccurate,
     detectSegmentationMaskSelfie
 
-  static let rowsCount = 16
+  static let rowsCount = 20
   static let componentsCount = 1
 
   public var description: String {
@@ -1114,6 +1136,14 @@ private enum DetectorPickerRow: Int {
       return "Face Detection"
     case .detectTextOnDevice:
       return "Text Recognition"
+    case .detectTextChineseOnDevice:
+      return "Text Recognition Chinese"
+    case .detectTextDevanagariOnDevice:
+      return "Text Recognition Devanagari"
+    case .detectTextJapaneseOnDevice:
+      return "Text Recognition Japanese"
+    case .detectTextKoreanOnDevice:
+      return "Text Recognition Korean"
     case .detectBarcodeOnDevice:
       return "Barcode Scanning"
     case .detectImageLabelsOnDevice:
@@ -1148,8 +1178,10 @@ private enum DetectorPickerRow: Int {
 
 private enum Constants {
   static let images = [
-    "grace_hopper.jpg", "barcode_128.png", "qr_code.jpg", "beach.jpg",
-    "image_has_text.jpg", "liberty.jpg", "bird.jpg",
+    "grace_hopper.jpg", "image_has_text.jpg", "chinese_sparse.png", "chinese.png",
+    "devanagari_sparse.png", "devanagari.png", "japanese_sparse.png", "japanese.png",
+    "korean_sparse.png", "korean.png", "barcode_128.png", "qr_code.jpg", "beach.jpg", "liberty.jpg",
+    "bird.jpg",
   ]
 
   static let detectionNoResultsMessage = "No results returned."

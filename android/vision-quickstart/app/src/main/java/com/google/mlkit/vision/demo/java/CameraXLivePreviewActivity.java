@@ -16,18 +16,9 @@
 
 package com.google.mlkit.vision.demo.java;
 
-import androidx.lifecycle.ViewModelProvider;
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
 import android.util.Size;
@@ -40,24 +31,31 @@ import android.widget.ImageView;
 import android.widget.Spinner;
 import android.widget.Toast;
 import android.widget.ToggleButton;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
+import androidx.camera.core.Camera;
 import androidx.camera.core.CameraInfoUnavailableException;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.ActivityCompat.OnRequestPermissionsResultCallback;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.ViewModelProvider;
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory;
 import com.google.android.gms.common.annotation.KeepName;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.mlkit.common.MlKitException;
 import com.google.mlkit.common.model.LocalModel;
+import com.google.mlkit.vision.barcode.ZoomSuggestionOptions.ZoomCallback;
 import com.google.mlkit.vision.demo.CameraXViewModel;
 import com.google.mlkit.vision.demo.GraphicOverlay;
 import com.google.mlkit.vision.demo.R;
 import com.google.mlkit.vision.demo.VisionImageProcessor;
 import com.google.mlkit.vision.demo.java.barcodescanner.BarcodeScannerProcessor;
 import com.google.mlkit.vision.demo.java.facedetector.FaceDetectorProcessor;
+import com.google.mlkit.vision.demo.java.facemeshdetector.FaceMeshDetectorProcessor;
 import com.google.mlkit.vision.demo.java.labeldetector.LabelDetectorProcessor;
 import com.google.mlkit.vision.demo.java.objectdetector.ObjectDetectorProcessor;
 import com.google.mlkit.vision.demo.java.posedetector.PoseDetectorProcessor;
@@ -65,12 +63,16 @@ import com.google.mlkit.vision.demo.java.segmenter.SegmenterProcessor;
 import com.google.mlkit.vision.demo.java.textdetector.TextRecognitionProcessor;
 import com.google.mlkit.vision.demo.preference.PreferenceUtils;
 import com.google.mlkit.vision.demo.preference.SettingsActivity;
-import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.label.custom.CustomImageLabelerOptions;
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions;
 import com.google.mlkit.vision.objects.custom.CustomObjectDetectorOptions;
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions;
 import com.google.mlkit.vision.pose.PoseDetectorOptionsBase;
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions;
+import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions;
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -78,24 +80,26 @@ import java.util.List;
 @KeepName
 @RequiresApi(VERSION_CODES.LOLLIPOP)
 public final class CameraXLivePreviewActivity extends AppCompatActivity
-    implements OnRequestPermissionsResultCallback,
-        OnItemSelectedListener,
-        CompoundButton.OnCheckedChangeListener {
+    implements OnItemSelectedListener, CompoundButton.OnCheckedChangeListener {
   private static final String TAG = "CameraXLivePreview";
-  private static final int PERMISSION_REQUESTS = 1;
 
   private static final String OBJECT_DETECTION = "Object Detection";
   private static final String OBJECT_DETECTION_CUSTOM = "Custom Object Detection";
   private static final String CUSTOM_AUTOML_OBJECT_DETECTION =
       "Custom AutoML Object Detection (Flower)";
   private static final String FACE_DETECTION = "Face Detection";
-  private static final String TEXT_RECOGNITION = "Text Recognition";
   private static final String BARCODE_SCANNING = "Barcode Scanning";
   private static final String IMAGE_LABELING = "Image Labeling";
   private static final String IMAGE_LABELING_CUSTOM = "Custom Image Labeling (Birds)";
   private static final String CUSTOM_AUTOML_LABELING = "Custom AutoML Image Labeling (Flower)";
   private static final String POSE_DETECTION = "Pose Detection";
   private static final String SELFIE_SEGMENTATION = "Selfie Segmentation";
+  private static final String TEXT_RECOGNITION_LATIN = "Text Recognition Latin";
+  private static final String TEXT_RECOGNITION_CHINESE = "Text Recognition Chinese";
+  private static final String TEXT_RECOGNITION_DEVANAGARI = "Text Recognition Devanagari";
+  private static final String TEXT_RECOGNITION_JAPANESE = "Text Recognition Japanese";
+  private static final String TEXT_RECOGNITION_KOREAN = "Text Recognition Korean";
+  private static final String FACE_MESH_DETECTION = "Face Mesh Detection (Beta)";
 
   private static final String STATE_SELECTED_MODEL = "selected_model";
 
@@ -103,6 +107,7 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
   private GraphicOverlay graphicOverlay;
 
   @Nullable private ProcessCameraProvider cameraProvider;
+  @Nullable private Camera camera;
   @Nullable private Preview previewUseCase;
   @Nullable private ImageAnalysis analysisUseCase;
   @Nullable private VisionImageProcessor imageProcessor;
@@ -116,16 +121,6 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.d(TAG, "onCreate");
-
-    if (VERSION.SDK_INT < VERSION_CODES.LOLLIPOP) {
-      Toast.makeText(
-              getApplicationContext(),
-              "CameraX is only supported on SDK version >=21. Current SDK version is "
-                  + VERSION.SDK_INT,
-              Toast.LENGTH_LONG)
-          .show();
-      return;
-    }
 
     if (savedInstanceState != null) {
       selectedModel = savedInstanceState.getString(STATE_SELECTED_MODEL, OBJECT_DETECTION);
@@ -148,13 +143,18 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
     options.add(OBJECT_DETECTION_CUSTOM);
     options.add(CUSTOM_AUTOML_OBJECT_DETECTION);
     options.add(FACE_DETECTION);
-    options.add(TEXT_RECOGNITION);
     options.add(BARCODE_SCANNING);
     options.add(IMAGE_LABELING);
     options.add(IMAGE_LABELING_CUSTOM);
     options.add(CUSTOM_AUTOML_LABELING);
     options.add(POSE_DETECTION);
     options.add(SELFIE_SEGMENTATION);
+    options.add(TEXT_RECOGNITION_LATIN);
+    options.add(TEXT_RECOGNITION_CHINESE);
+    options.add(TEXT_RECOGNITION_DEVANAGARI);
+    options.add(TEXT_RECOGNITION_JAPANESE);
+    options.add(TEXT_RECOGNITION_KOREAN);
+    options.add(FACE_MESH_DETECTION);
 
     // Creating adapter for spinner
     ArrayAdapter<String> dataAdapter = new ArrayAdapter<>(this, R.layout.spinner_style, options);
@@ -174,9 +174,7 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
             this,
             provider -> {
               cameraProvider = provider;
-              if (allPermissionsGranted()) {
-                bindAllCameraUseCases();
-              }
+              bindAllCameraUseCases();
             });
 
     ImageView settingsButton = findViewById(R.id.settings_button);
@@ -188,10 +186,6 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
               SettingsActivity.LaunchSource.CAMERAX_LIVE_PREVIEW);
           startActivity(intent);
         });
-
-    if (!allPermissionsGranted()) {
-      getRuntimePermissions();
-    }
   }
 
   @Override
@@ -292,7 +286,8 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
     }
     previewUseCase = builder.build();
     previewUseCase.setSurfaceProvider(previewView.getSurfaceProvider());
-    cameraProvider.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector, previewUseCase);
+    camera =
+        cameraProvider.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector, previewUseCase);
   }
 
   private void bindAnalysisUseCase() {
@@ -333,19 +328,52 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
                   this, customAutoMLODTLocalModel);
           imageProcessor = new ObjectDetectorProcessor(this, customAutoMLODTOptions);
           break;
-        case TEXT_RECOGNITION:
-          Log.i(TAG, "Using on-device Text recognition Processor");
-          imageProcessor = new TextRecognitionProcessor(this);
+        case TEXT_RECOGNITION_CHINESE:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Chinese.");
+          imageProcessor =
+              new TextRecognitionProcessor(
+                  this, new ChineseTextRecognizerOptions.Builder().build());
+          break;
+        case TEXT_RECOGNITION_DEVANAGARI:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Devanagari.");
+          imageProcessor =
+              new TextRecognitionProcessor(
+                  this, new DevanagariTextRecognizerOptions.Builder().build());
+          break;
+        case TEXT_RECOGNITION_JAPANESE:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Japanese.");
+          imageProcessor =
+              new TextRecognitionProcessor(
+                  this, new JapaneseTextRecognizerOptions.Builder().build());
+          break;
+        case TEXT_RECOGNITION_KOREAN:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Korean.");
+          imageProcessor =
+              new TextRecognitionProcessor(this, new KoreanTextRecognizerOptions.Builder().build());
+          break;
+        case TEXT_RECOGNITION_LATIN:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin.");
+          imageProcessor =
+              new TextRecognitionProcessor(this, new TextRecognizerOptions.Builder().build());
           break;
         case FACE_DETECTION:
           Log.i(TAG, "Using Face Detector Processor");
-          FaceDetectorOptions faceDetectorOptions =
-              PreferenceUtils.getFaceDetectorOptionsForLivePreview(this);
-          imageProcessor = new FaceDetectorProcessor(this, faceDetectorOptions);
+          imageProcessor = new FaceDetectorProcessor(this);
           break;
         case BARCODE_SCANNING:
           Log.i(TAG, "Using Barcode Detector Processor");
-          imageProcessor = new BarcodeScannerProcessor(this);
+          ZoomCallback zoomCallback = null;
+          if (PreferenceUtils.shouldEnableAutoZoom(this)) {
+            zoomCallback =
+                zoomLevel -> {
+                  Log.i(TAG, "Set zoom ratio " + zoomLevel);
+                  @SuppressWarnings("FutureReturnValueIgnored")
+                  ListenableFuture<Void> ignored =
+                      camera.getCameraControl().setZoomRatio(zoomLevel);
+                  return true;
+                };
+          }
+          imageProcessor = new BarcodeScannerProcessor(this, zoomCallback);
           break;
         case IMAGE_LABELING:
           Log.i(TAG, "Using Image Label Detector Processor");
@@ -381,11 +409,19 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
           boolean runClassification = PreferenceUtils.shouldPoseDetectionRunClassification(this);
           imageProcessor =
               new PoseDetectorProcessor(
-                  this, poseDetectorOptions, shouldShowInFrameLikelihood, visualizeZ, rescaleZ,
-                  runClassification, /* isStreamMode = */true);
+                  this,
+                  poseDetectorOptions,
+                  shouldShowInFrameLikelihood,
+                  visualizeZ,
+                  rescaleZ,
+                  runClassification,
+                  /* isStreamMode = */ true);
           break;
         case SELFIE_SEGMENTATION:
           imageProcessor = new SegmenterProcessor(this);
+          break;
+        case FACE_MESH_DETECTION:
+          imageProcessor = new FaceMeshDetectorProcessor(this);
           break;
         default:
           throw new IllegalStateException("Invalid model name");
@@ -435,64 +471,5 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
         });
 
     cameraProvider.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector, analysisUseCase);
-  }
-
-  private String[] getRequiredPermissions() {
-    try {
-      PackageInfo info =
-          this.getPackageManager()
-              .getPackageInfo(this.getPackageName(), PackageManager.GET_PERMISSIONS);
-      String[] ps = info.requestedPermissions;
-      if (ps != null && ps.length > 0) {
-        return ps;
-      } else {
-        return new String[0];
-      }
-    } catch (Exception e) {
-      return new String[0];
-    }
-  }
-
-  private boolean allPermissionsGranted() {
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private void getRuntimePermissions() {
-    List<String> allNeededPermissions = new ArrayList<>();
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        allNeededPermissions.add(permission);
-      }
-    }
-
-    if (!allNeededPermissions.isEmpty()) {
-      ActivityCompat.requestPermissions(
-          this, allNeededPermissions.toArray(new String[0]), PERMISSION_REQUESTS);
-    }
-  }
-
-  @Override
-  public void onRequestPermissionsResult(
-      int requestCode, String[] permissions, int[] grantResults) {
-    Log.i(TAG, "Permission granted!");
-    if (allPermissionsGranted()) {
-      bindAllCameraUseCases();
-    }
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-  }
-
-  private static boolean isPermissionGranted(Context context, String permission) {
-    if (ContextCompat.checkSelfPermission(context, permission)
-        == PackageManager.PERMISSION_GRANTED) {
-      Log.i(TAG, "Permission granted: " + permission);
-      return true;
-    }
-    Log.i(TAG, "Permission NOT granted: " + permission);
-    return false;
   }
 }

@@ -16,6 +16,7 @@
 
 import AVFoundation
 import CoreVideo
+import MLImage
 import MLKit
 
 @objc(CameraViewController)
@@ -23,6 +24,10 @@ class CameraViewController: UIViewController {
   private let detectors: [Detector] = [
     .onDeviceFace,
     .onDeviceText,
+    .onDeviceTextChinese,
+    .onDeviceTextDevanagari,
+    .onDeviceTextJapanese,
+    .onDeviceTextKorean,
     .onDeviceBarcode,
     .onDeviceImageLabel,
     .onDeviceImageLabelsCustom,
@@ -128,12 +133,12 @@ class CameraViewController: UIViewController {
 
     // Create a barcode scanner.
     let barcodeScanner = BarcodeScanner.barcodeScanner(options: barcodeOptions)
-    var barcodes: [Barcode]
+    var barcodes: [Barcode] = []
+    var scanningError: Error?
     do {
       barcodes = try barcodeScanner.results(in: image)
     } catch let error {
-      print("Failed to scan barcodes with error: \(error.localizedDescription).")
-      return
+      scanningError = error
     }
     weak var weakSelf = self
     DispatchQueue.main.sync {
@@ -142,15 +147,13 @@ class CameraViewController: UIViewController {
         return
       }
       strongSelf.updatePreviewOverlayViewWithLastFrame()
-      strongSelf.removeDetectionAnnotations()
-    }
-    guard !barcodes.isEmpty else {
-      print("Barcode scanner returrned no results.")
-      return
-    }
-    DispatchQueue.main.sync {
-      guard let strongSelf = weakSelf else {
-        print("Self is nil!")
+
+      if let scanningError = scanningError {
+        print("Failed to scan barcodes with error: \(scanningError.localizedDescription).")
+        return
+      }
+      guard !barcodes.isEmpty else {
+        print("Barcode scanner returrned no results.")
         return
       }
       for barcode in barcodes {
@@ -169,7 +172,7 @@ class CameraViewController: UIViewController {
           color: UIColor.green
         )
         let label = UILabel(frame: convertedRect)
-        label.text = barcode.rawValue
+        label.text = barcode.displayValue
         label.adjustsFontSizeToFitWidth = true
         strongSelf.rotate(label, orientation: image.orientation)
         strongSelf.annotationOverlayView.addSubview(label)
@@ -186,12 +189,12 @@ class CameraViewController: UIViewController {
     options.classificationMode = .none
     options.performanceMode = .fast
     let faceDetector = FaceDetector.faceDetector(options: options)
-    var faces: [Face]
+    var faces: [Face] = []
+    var detectionError: Error?
     do {
       faces = try faceDetector.results(in: image)
     } catch let error {
-      print("Failed to detect faces with error: \(error.localizedDescription).")
-      return
+      detectionError = error
     }
     weak var weakSelf = self
     DispatchQueue.main.sync {
@@ -200,17 +203,15 @@ class CameraViewController: UIViewController {
         return
       }
       strongSelf.updatePreviewOverlayViewWithLastFrame()
-      strongSelf.removeDetectionAnnotations()
-    }
-    guard !faces.isEmpty else {
-      print("On-Device face detector returned no results.")
-      return
-    }
-    DispatchQueue.main.sync {
-      guard let strongSelf = weakSelf else {
-        print("Self is nil!")
+      if let detectionError = detectionError {
+        print("Failed to detect faces with error: \(detectionError.localizedDescription).")
         return
       }
+      guard !faces.isEmpty else {
+        print("On-Device face detector returned no results.")
+        return
+      }
+
       for face in faces {
         let normalizedRect = CGRect(
           x: face.frame.origin.x / width,
@@ -231,14 +232,14 @@ class CameraViewController: UIViewController {
     }
   }
 
-  private func detectPose(in image: VisionImage, width: CGFloat, height: CGFloat) {
+  private func detectPose(in image: MLImage, width: CGFloat, height: CGFloat) {
     if let poseDetector = self.poseDetector {
-      var poses: [Pose]
+      var poses: [Pose] = []
+      var detectionError: Error?
       do {
         poses = try poseDetector.results(in: image)
       } catch let error {
-        print("Failed to detect poses with error: \(error.localizedDescription).")
-        return
+        detectionError = error
       }
       weak var weakSelf = self
       DispatchQueue.main.sync {
@@ -247,17 +248,15 @@ class CameraViewController: UIViewController {
           return
         }
         strongSelf.updatePreviewOverlayViewWithLastFrame()
-        strongSelf.removeDetectionAnnotations()
-      }
-      guard !poses.isEmpty else {
-        print("Pose detector returned no results.")
-        return
-      }
-      DispatchQueue.main.sync {
-        guard let strongSelf = weakSelf else {
-          print("Self is nil!")
+        if let detectionError = detectionError {
+          print("Failed to detect poses with error: \(detectionError.localizedDescription).")
           return
         }
+        guard !poses.isEmpty else {
+          print("Pose detector returned no results.")
+          return
+        }
+
         // Pose detected. Currently, only single person detection is supported.
         poses.forEach { pose in
           let poseOverlayView = UIUtilities.createPoseOverlayView(
@@ -280,12 +279,12 @@ class CameraViewController: UIViewController {
     guard let segmenter = self.segmenter else {
       return
     }
-    var mask: SegmentationMask
+    var mask: SegmentationMask? = nil
+    var segmentationError: Error?
     do {
       mask = try segmenter.results(in: image)
     } catch let error {
-      print("Failed to perform segmentation with error: \(error.localizedDescription).")
-      return
+      segmentationError = error
     }
     weak var weakSelf = self
     DispatchQueue.main.sync {
@@ -295,6 +294,15 @@ class CameraViewController: UIViewController {
       }
       strongSelf.removeDetectionAnnotations()
 
+      if let segmentationError = segmentationError {
+        print(
+          "Failed to perform segmentation with error: \(segmentationError.localizedDescription).")
+        return
+      }
+      guard let mask = mask else {
+        print("Segmenter returned empty mask.")
+        return
+      }
       guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
         print("Failed to get image buffer from sample buffer.")
         return
@@ -306,16 +314,31 @@ class CameraViewController: UIViewController {
         foregroundColor: nil)
       strongSelf.updatePreviewOverlayViewWithImageBuffer(imageBuffer)
     }
-
   }
 
-  private func recognizeTextOnDevice(in image: VisionImage, width: CGFloat, height: CGFloat) {
-    var recognizedText: Text
+  private func recognizeTextOnDevice(
+    in image: VisionImage, width: CGFloat, height: CGFloat, detectorType: Detector
+  ) {
+    var options: CommonTextRecognizerOptions
+    if detectorType == .onDeviceTextChinese {
+      options = ChineseTextRecognizerOptions.init()
+    } else if detectorType == .onDeviceTextDevanagari {
+      options = DevanagariTextRecognizerOptions.init()
+    } else if detectorType == .onDeviceTextJapanese {
+      options = JapaneseTextRecognizerOptions.init()
+    } else if detectorType == .onDeviceTextKorean {
+      options = KoreanTextRecognizerOptions.init()
+    } else {
+      options = TextRecognizerOptions.init()
+    }
+
+    var recognizedText: Text?
+    var detectionError: Error?
     do {
-      recognizedText = try TextRecognizer.textRecognizer().results(in: image)
+      recognizedText = try TextRecognizer.textRecognizer(options: options)
+        .results(in: image)
     } catch let error {
-      print("Failed to recognize text with error: \(error.localizedDescription).")
-      return
+      detectionError = error
     }
     weak var weakSelf = self
     DispatchQueue.main.sync {
@@ -324,7 +347,14 @@ class CameraViewController: UIViewController {
         return
       }
       strongSelf.updatePreviewOverlayViewWithLastFrame()
-      strongSelf.removeDetectionAnnotations()
+      if let detectionError = detectionError {
+        print("Failed to recognize text with error: \(detectionError.localizedDescription).")
+        return
+      }
+      guard let recognizedText = recognizedText else {
+        print("Text recognition returned no results.")
+        return
+      }
 
       // Blocks.
       for block in recognizedText.blocks {
@@ -397,35 +427,32 @@ class CameraViewController: UIViewController {
     }
     options.confidenceThreshold = NSNumber(floatLiteral: Constant.labelConfidenceThreshold)
     let onDeviceLabeler = ImageLabeler.imageLabeler(options: options)
-    weak var weakSelf = self
     let labels: [ImageLabel]
+    var labelingError: Error?
+    var resultsText: String? = nil
     do {
       labels = try onDeviceLabeler.results(in: visionImage)
-    } catch let error {
-      let errorString = error.localizedDescription
-      print("On-Device label detection failed with error: \(errorString)")
-      return
-    }
-    let resultsText = labels.map { label -> String in
-      return "Label: \(label.text), Confidence: \(label.confidence), Index: \(label.index)"
-    }.joined(separator: "\n")
+      resultsText = labels.map { label -> String in
+        return "Label: \(label.text), Confidence: \(label.confidence), Index: \(label.index)"
+      }.joined(separator: "\n")
 
+    } catch let error {
+      labelingError = error
+    }
+    weak var weakSelf = self
     DispatchQueue.main.sync {
       guard let strongSelf = weakSelf else {
         print("Self is nil!")
         return
       }
       strongSelf.updatePreviewOverlayViewWithLastFrame()
-      strongSelf.removeDetectionAnnotations()
-    }
-    guard resultsText.count != 0 else { return }
-
-    DispatchQueue.main.sync {
-      guard let strongSelf = weakSelf else {
-        print("Self is nil!")
+      if let labelingError = labelingError {
+        print("Image labeling failed with error: \(labelingError.localizedDescription)")
         return
       }
-      let frame = strongSelf.view.frame
+      guard let resultsText = resultsText else { return }
+      guard resultsText.count > 0 else { return }
+
       let normalizedRect = CGRect(
         x: Constant.imageLabelResultFrameX,
         y: Constant.imageLabelResultFrameY,
@@ -456,30 +483,28 @@ class CameraViewController: UIViewController {
     options: CommonObjectDetectorOptions
   ) {
     let detector = ObjectDetector.objectDetector(options: options)
-    var objects: [Object]
+    var objects: [Object] = []
+    var detectionError: Error? = nil
     do {
       objects = try detector.results(in: image)
     } catch let error {
-      print("Failed to detect objects with error: \(error.localizedDescription).")
-      return
+      detectionError = error
     }
+
     weak var weakSelf = self
     DispatchQueue.main.sync {
       guard let strongSelf = weakSelf else {
         print("Self is nil!")
         return
       }
-      strongSelf.updatePreviewOverlayViewWithLastFrame()
-      strongSelf.removeDetectionAnnotations()
-    }
-    guard !objects.isEmpty else {
-      print("On-Device object detector returned no results.")
-      return
-    }
+      strongSelf.self.updatePreviewOverlayViewWithLastFrame()
+      if let detectionError = detectionError {
+        print("Failed to detect objects with error: \(detectionError.localizedDescription).")
+        return
 
-    DispatchQueue.main.sync {
-      guard let strongSelf = weakSelf else {
-        print("Self is nil!")
+      }
+      guard !objects.isEmpty else {
+        print("On-Device object detector returned no results.")
         return
       }
       for object in objects {
@@ -671,6 +696,7 @@ class CameraViewController: UIViewController {
       return
     }
     self.updatePreviewOverlayViewWithImageBuffer(imageBuffer)
+    self.removeDetectionAnnotations()
   }
 
   private func updatePreviewOverlayViewWithImageBuffer(_ imageBuffer: CVImageBuffer?) {
@@ -938,8 +964,14 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
     let orientation = UIUtilities.imageOrientation(
       fromDevicePosition: isUsingFrontCamera ? .front : .back
     )
-
     visionImage.orientation = orientation
+
+    guard let inputImage = MLImage(sampleBuffer: sampleBuffer) else {
+      print("Failed to create MLImage from sample buffer.")
+      return
+    }
+    inputImage.orientation = orientation
+
     let imageWidth = CGFloat(CVPixelBufferGetWidth(imageBuffer))
     let imageHeight = CGFloat(CVPixelBufferGetHeight(imageBuffer))
     var shouldEnableClassification = false
@@ -964,8 +996,10 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
       scanBarcodesOnDevice(in: visionImage, width: imageWidth, height: imageHeight)
     case .onDeviceFace:
       detectFacesOnDevice(in: visionImage, width: imageWidth, height: imageHeight)
-    case .onDeviceText:
-      recognizeTextOnDevice(in: visionImage, width: imageWidth, height: imageHeight)
+    case .onDeviceText, .onDeviceTextChinese, .onDeviceTextDevanagari, .onDeviceTextJapanese,
+      .onDeviceTextKorean:
+      recognizeTextOnDevice(
+        in: visionImage, width: imageWidth, height: imageHeight, detectorType: activeDetector)
     case .onDeviceImageLabel:
       detectLabels(
         in: visionImage, width: imageWidth, height: imageHeight, shouldUseCustomModel: false)
@@ -1006,7 +1040,7 @@ extension CameraViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
         options: options)
 
     case .pose, .poseAccurate:
-      detectPose(in: visionImage, width: imageWidth, height: imageHeight)
+      detectPose(in: inputImage, width: imageWidth, height: imageHeight)
     case .segmentationSelfie:
       detectSegmentationMask(in: visionImage, sampleBuffer: sampleBuffer)
     }
@@ -1019,6 +1053,10 @@ public enum Detector: String {
   case onDeviceBarcode = "Barcode Scanning"
   case onDeviceFace = "Face Detection"
   case onDeviceText = "Text Recognition"
+  case onDeviceTextChinese = "Text Recognition Chinese"
+  case onDeviceTextDevanagari = "Text Recognition Devanagari"
+  case onDeviceTextJapanese = "Text Recognition Japanese"
+  case onDeviceTextKorean = "Text Recognition Korean"
   case onDeviceImageLabel = "Image Labeling"
   case onDeviceImageLabelsCustom = "Image Labeling Custom"
   case onDeviceObjectProminentNoClassifier = "ODT, single, no labeling"

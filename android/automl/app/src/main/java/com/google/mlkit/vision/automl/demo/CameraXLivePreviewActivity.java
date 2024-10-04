@@ -16,13 +16,7 @@
 
 package com.google.mlkit.vision.automl.demo;
 
-import androidx.lifecycle.ViewModelProvider;
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory;
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.os.Build.VERSION;
 import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
@@ -46,9 +40,9 @@ import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.ActivityCompat.OnRequestPermissionsResultCallback;
 import androidx.core.content.ContextCompat;
+import androidx.lifecycle.ViewModelProvider;
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory;
 import com.google.android.gms.common.annotation.KeepName;
 import com.google.mlkit.common.MlKitException;
 import com.google.mlkit.common.model.CustomRemoteModel;
@@ -67,11 +61,8 @@ import java.util.List;
 @KeepName
 @RequiresApi(VERSION_CODES.LOLLIPOP)
 public final class CameraXLivePreviewActivity extends AppCompatActivity
-    implements OnRequestPermissionsResultCallback,
-        OnItemSelectedListener,
-        CompoundButton.OnCheckedChangeListener {
+    implements OnItemSelectedListener, CompoundButton.OnCheckedChangeListener {
   private static final String TAG = "CameraXLivePreview";
-  private static final int PERMISSION_REQUESTS = 1;
   private static final String CUSTOM_AUTOML_LABELING = "Custom AutoML Image Labeling";
   private static final String CUSTOM_AUTOML_OBJECT_DETECTION = "Custom AutoML Object Detection";
 
@@ -95,16 +86,6 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     Log.d(TAG, "onCreate");
-
-    if (VERSION.SDK_INT < VERSION_CODES.LOLLIPOP) {
-      Toast.makeText(
-              getApplicationContext(),
-              "CameraX is only supported on SDK version >=21. Current SDK version is "
-                  + VERSION.SDK_INT,
-              Toast.LENGTH_LONG)
-          .show();
-      return;
-    }
 
     if (savedInstanceState != null) {
       selectedModel = savedInstanceState.getString(STATE_SELECTED_MODEL, CUSTOM_AUTOML_LABELING);
@@ -145,24 +126,18 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
             this,
             provider -> {
               cameraProvider = provider;
-              if (allPermissionsGranted()) {
-                bindAllCameraUseCases();
-              }
+              bindAllCameraUseCases();
             });
 
     ImageView settingsButton = findViewById(R.id.settings_button);
     settingsButton.setOnClickListener(
-      v -> {
-        Intent intent = new Intent(getApplicationContext(), SettingsActivity.class);
-        intent.putExtra(
-          SettingsActivity.EXTRA_LAUNCH_SOURCE,
-          SettingsActivity.LaunchSource.CAMERAX_LIVE_PREVIEW);
-        startActivity(intent);
-      });
-
-    if (!allPermissionsGranted()) {
-      getRuntimePermissions();
-    }
+        v -> {
+          Intent intent = new Intent(getApplicationContext(), SettingsActivity.class);
+          intent.putExtra(
+              SettingsActivity.EXTRA_LAUNCH_SOURCE,
+              SettingsActivity.LaunchSource.CAMERAX_LIVE_PREVIEW);
+          startActivity(intent);
+        });
   }
 
   @Override
@@ -311,7 +286,7 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
         default:
           throw new IllegalStateException("Invalid model name");
       }
-    } catch (Exception e) {
+    } catch (RuntimeException e) {
       Log.e(TAG, "Can not create image processor: " + selectedModel, e);
       Toast.makeText(
               getApplicationContext(),
@@ -356,64 +331,5 @@ public final class CameraXLivePreviewActivity extends AppCompatActivity
         });
 
     cameraProvider.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector, analysisUseCase);
-  }
-
-  private String[] getRequiredPermissions() {
-    try {
-      PackageInfo info =
-          this.getPackageManager()
-              .getPackageInfo(this.getPackageName(), PackageManager.GET_PERMISSIONS);
-      String[] ps = info.requestedPermissions;
-      if (ps != null && ps.length > 0) {
-        return ps;
-      } else {
-        return new String[0];
-      }
-    } catch (Exception e) {
-      return new String[0];
-    }
-  }
-
-  private boolean allPermissionsGranted() {
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private void getRuntimePermissions() {
-    List<String> allNeededPermissions = new ArrayList<>();
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        allNeededPermissions.add(permission);
-      }
-    }
-
-    if (!allNeededPermissions.isEmpty()) {
-      ActivityCompat.requestPermissions(
-          this, allNeededPermissions.toArray(new String[0]), PERMISSION_REQUESTS);
-    }
-  }
-
-  @Override
-  public void onRequestPermissionsResult(
-      int requestCode, String[] permissions, int[] grantResults) {
-    Log.i(TAG, "Permission granted!");
-    if (allPermissionsGranted()) {
-      bindAllCameraUseCases();
-    }
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-  }
-
-  private static boolean isPermissionGranted(Context context, String permission) {
-    if (ContextCompat.checkSelfPermission(context, permission)
-        == PackageManager.PERMISSION_GRANTED) {
-      Log.i(TAG, "Permission granted: " + permission);
-      return true;
-    }
-    Log.i(TAG, "Permission NOT granted: " + permission);
-    return false;
   }
 }

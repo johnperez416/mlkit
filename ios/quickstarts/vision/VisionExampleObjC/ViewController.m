@@ -18,6 +18,7 @@
 #import "UIImage+VisionDetection.h"
 #import "UIUtilities.h"
 
+@import MLImage;
 @import MLKit;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -34,11 +35,11 @@ static NSString *const localModelFileType = @"tflite";
 static const float labelConfidenceThreshold = 0.75;
 static const CGFloat smallDotRadius = 5.0;
 static const CGFloat largeDotRadius = 10.0;
-static const CGFloat segmentationMaskAlpha = 0.5;
+static const CGFloat segmentationMaskAlpha = 1;
 static CGColorRef lineColor;
 static CGColorRef fillColor;
 
-static int const rowsCount = 16;
+static int const rowsCount = 20;
 static int const componentsCount = 1;
 
 /**
@@ -50,6 +51,14 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
   DetectorPickerRowDetectFaceOnDevice,
   /** On-Device vision text vision detector. */
   DetectorPickerRowDetectTextOnDevice,
+  /** On-Device vision Chinese text vision detector. */
+  DetectorPickerRowDetectTextChineseOnDevice,
+  /** On-Device vision Devanagari text vision detector. */
+  DetectorPickerRowDetectTextDevanagariOnDevice,
+  /** On-Device vision Japanese text vision detector. */
+  DetectorPickerRowDetectTextJapaneseOnDevice,
+  /** On-Device vision Korean text vision detector. */
+  DetectorPickerRowDetectTextKoreanOnDevice,
   /** On-Device vision barcode vision detector. */
   DetectorPickerRowDetectBarcodeOnDevice,
   /** On-Device vision image label detector. */
@@ -125,6 +134,14 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
       return @"Face Detection";
     case DetectorPickerRowDetectTextOnDevice:
       return @"Text Recognition";
+    case DetectorPickerRowDetectTextChineseOnDevice:
+      return @"Text Recognition Chinese";
+    case DetectorPickerRowDetectTextDevanagariOnDevice:
+      return @"Text Recognition Devanagari";
+    case DetectorPickerRowDetectTextJapaneseOnDevice:
+      return @"Text Recognition Japanese";
+    case DetectorPickerRowDetectTextKoreanOnDevice:
+      return @"Text Recognition Korean";
     case DetectorPickerRowDetectBarcodeOnDevice:
       return @"Barcode Scanning";
     case DetectorPickerRowDetectImageLabelsOnDevice:
@@ -160,7 +177,9 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
   [super viewDidLoad];
 
   images = @[
-    @"grace_hopper.jpg", @"barcode_128.png", @"qr_code.jpg", @"beach.jpg", @"image_has_text.jpg",
+    @"grace_hopper.jpg", @"image_has_text.jpg", @"chinese_sparse.png", @"chinese.png",
+    @"devanagari_sparse.png", @"devanagari.png", @"japanese_sparse.png", @"japanese.png",
+    @"korean_sparse.png", @"korean.png", @"barcode_128.png", @"qr_code.jpg", @"beach.jpg",
     @"liberty.jpg", @"bird.jpg"
   ];
   lineColor = UIColor.yellowColor.CGColor;
@@ -205,12 +224,10 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
 
 - (void)viewWillAppear:(BOOL)animated {
   [super viewWillAppear:animated];
-  [self.navigationController.navigationBar setHidden:YES];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
   [super viewWillDisappear:animated];
-  [self.navigationController.navigationBar setHidden:NO];
 }
 
 - (IBAction)detect:(id)sender {
@@ -231,8 +248,12 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
     case DetectorPickerRowDetectFaceOnDevice:
       [self detectFacesInImage:_imageView.image];
       break;
-    case DetectorPickerRowDetectTextOnDevice:
-      [self detectTextOnDeviceInImage:_imageView.image];
+    case DetectorPickerRowDetectTextOnDevice:            // Falls through
+    case DetectorPickerRowDetectTextChineseOnDevice:     // Falls through
+    case DetectorPickerRowDetectTextDevanagariOnDevice:  // Falls through
+    case DetectorPickerRowDetectTextJapaneseOnDevice:    // Falls through
+    case DetectorPickerRowDetectTextKoreanOnDevice:
+      [self detectTextOnDeviceInImage:_imageView.image fromRow:rowIndex];
       break;
     case DetectorPickerRowDetectBarcodeOnDevice:
       [self detectBarcodesInImage:_imageView.image];
@@ -895,43 +916,44 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
     return;
   }
 
-  // Initialize a `VisionImage` object with the given `UIImage`.
-  MLKVisionImage *visionImage = [[MLKVisionImage alloc] initWithImage:image];
-  visionImage.orientation = image.imageOrientation;
+  GMLImage *inputImage = [[GMLImage alloc] initWithImage:image];
+  inputImage.orientation = image.imageOrientation;
 
   CGAffineTransform transform = [self transformMatrix];
 
   __weak typeof(self) weakSelf = self;
-  [self.poseDetector processImage:visionImage completion:^(NSArray<MLKPose *> *_Nullable poses,
-                                                           NSError *_Nullable error) {
-    __strong typeof(weakSelf) strongSelf = weakSelf;
-    if (strongSelf == nil) {
-      return;
-    }
-    if (poses.count == 0) {
-      NSString *errorString = error ? error.localizedDescription : detectionNoResultsMessage;
-      strongSelf.resultsText = [NSMutableString
-          stringWithFormat:@"Pose detection failed with error: %@", errorString];
-      [strongSelf showResults];
-      return;
-    }
+  [self.poseDetector
+      processImage:inputImage
+        completion:^(NSArray<MLKPose *> *_Nullable poses, NSError *_Nullable error) {
+          __strong typeof(weakSelf) strongSelf = weakSelf;
+          if (strongSelf == nil) {
+            return;
+          }
+          if (poses.count == 0) {
+            NSString *errorString = error ? error.localizedDescription : detectionNoResultsMessage;
+            strongSelf.resultsText = [NSMutableString
+                stringWithFormat:@"Pose detection failed with error: %@", errorString];
+            [strongSelf showResults];
+            return;
+          }
 
-    // Pose detection currently only supports single pose.
-    MLKPose *pose = poses.firstObject;
+          // Pose detection currently only supports single pose.
+          MLKPose *pose = poses.firstObject;
 
-    UIView *poseOverlay = [UIUtilities
-             poseOverlayViewForPose:pose
-                   inViewWithBounds:self.annotationOverlayView.bounds
-                          lineWidth:3.0f
-                          dotRadius:smallDotRadius
-        positionTransformationBlock:^(MLKVisionPoint *position) {
-          return CGPointApplyAffineTransform([strongSelf pointFromVisionPoint:position], transform);
+          UIView *poseOverlay =
+              [UIUtilities poseOverlayViewForPose:pose
+                                 inViewWithBounds:self.annotationOverlayView.bounds
+                                        lineWidth:3.0f
+                                        dotRadius:smallDotRadius
+                      positionTransformationBlock:^(MLKVisionPoint *position) {
+                        return CGPointApplyAffineTransform(
+                            [strongSelf pointFromVisionPoint:position], transform);
+                      }];
+
+          [strongSelf.annotationOverlayView addSubview:poseOverlay];
+          strongSelf.resultsText = [NSMutableString stringWithFormat:@"Pose Detected"];
+          [strongSelf showResults];
         }];
-
-    [strongSelf.annotationOverlayView addSubview:poseOverlay];
-    strongSelf.resultsText = [NSMutableString stringWithFormat:@"Pose Detected"];
-    [strongSelf showResults];
-  }];
 }
 
 - (void)detectSegmentationMaskInImage:(UIImage *)image {
@@ -1047,13 +1069,25 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
  *
  * @param image The image.
  */
-- (void)detectTextOnDeviceInImage:(UIImage *)image {
+- (void)detectTextOnDeviceInImage:(UIImage *)image fromRow:(DetectorPickerRow)row {
   if (!image) {
     return;
   }
 
   // [START init_text]
-  MLKTextRecognizer *onDeviceTextRecognizer = [MLKTextRecognizer textRecognizer];
+  MLKCommonTextRecognizerOptions *options;
+  if (row == DetectorPickerRowDetectTextChineseOnDevice) {
+    options = [[MLKChineseTextRecognizerOptions alloc] init];
+  } else if (row == DetectorPickerRowDetectTextDevanagariOnDevice) {
+    options = [[MLKDevanagariTextRecognizerOptions alloc] init];
+  } else if (row == DetectorPickerRowDetectTextJapaneseOnDevice) {
+    options = [[MLKJapaneseTextRecognizerOptions alloc] init];
+  } else if (row == DetectorPickerRowDetectTextKoreanOnDevice) {
+    options = [[MLKKoreanTextRecognizerOptions alloc] init];
+  } else {
+    options = [[MLKTextRecognizerOptions alloc] init];
+  }
+  MLKTextRecognizer *onDeviceTextRecognizer = [MLKTextRecognizer textRecognizerWithOptions:options];
   // [END init_text]
 
   // Initialize a `VisionImage` object with the given `UIImage`.
@@ -1087,50 +1121,50 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
 
   // [START detect_object]
   __weak typeof(self) weakSelf = self;
-  [detector
-      processImage:visionImage
-        completion:^(NSArray<MLKObject *> *_Nullable objects, NSError *_Nullable error) {
-          __strong typeof(weakSelf) strongSelf = weakSelf;
-          if (error != nil) {
-            // [START_EXCLUDE]
-            NSString *errorString = error ? error.localizedDescription : detectionNoResultsMessage;
-            strongSelf.resultsText = [NSMutableString
-                stringWithFormat:@"Object detection failed with error: %@", errorString];
-            [strongSelf showResults];
-            // [END_EXCLUDE]
-          }
-          if (!objects || objects.count == 0) {
-            // [START_EXCLUDE]
-            strongSelf.resultsText =
-                [@"On-Device object detector returned no results." mutableCopy];
-            [strongSelf showResults];
-            // [END_EXCLUDE]
-            return;
-          }
+  [detector processImage:visionImage
+              completion:^(NSArray<MLKObject *> *_Nullable objects, NSError *_Nullable error) {
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (error != nil) {
+                  // [START_EXCLUDE]
+                  NSString *errorString =
+                      error ? error.localizedDescription : detectionNoResultsMessage;
+                  strongSelf.resultsText = [NSMutableString
+                      stringWithFormat:@"Object detection failed with error: %@", errorString];
+                  [strongSelf showResults];
+                  // [END_EXCLUDE]
+                }
+                if (!objects || objects.count == 0) {
+                  // [START_EXCLUDE]
+                  strongSelf.resultsText =
+                      [@"On-Device object detector returned no results." mutableCopy];
+                  [strongSelf showResults];
+                  // [END_EXCLUDE]
+                  return;
+                }
 
-          // [START_EXCLUDE]
-          [strongSelf.resultsText setString:@""];
-          for (MLKObject *object in objects) {
-            CGAffineTransform transform = [self transformMatrix];
-            CGRect transformedRect = CGRectApplyAffineTransform(object.frame, transform);
-            [UIUtilities addRectangle:transformedRect
-                               toView:self.annotationOverlayView
-                                color:UIColor.greenColor];
+                // [START_EXCLUDE]
+                [strongSelf.resultsText setString:@""];
+                for (MLKObject *object in objects) {
+                  CGAffineTransform transform = [self transformMatrix];
+                  CGRect transformedRect = CGRectApplyAffineTransform(object.frame, transform);
+                  [UIUtilities addRectangle:transformedRect
+                                     toView:self.annotationOverlayView
+                                      color:UIColor.greenColor];
 
-            [strongSelf.resultsText appendFormat:@"Frame: %@\nObject ID: %@\nLabels:\n",
-                                                 NSStringFromCGRect(object.frame),
-                                                 object.trackingID];
-            int i = 0;
-            for (MLKObjectLabel *l in object.labels) {
-              NSString *labelString =
-                  [NSString stringWithFormat:@"Label %d: %@, %f, %lu\n", i++, l.text, l.confidence,
-                                             (unsigned long)l.index];
-              [strongSelf.resultsText appendString:labelString];
-            }
-          }
-          [strongSelf showResults];
-          // [END_EXCLUDE]
-        }];
+                  [strongSelf.resultsText appendFormat:@"Frame: %@\nObject ID: %@\nLabels:\n",
+                                                       NSStringFromCGRect(object.frame),
+                                                       object.trackingID];
+                  int i = 0;
+                  for (MLKObjectLabel *l in object.labels) {
+                    NSString *labelString =
+                        [NSString stringWithFormat:@"Label %d: %@, %f, %lu\n", i++, l.text,
+                                                   l.confidence, (unsigned long)l.index];
+                    [strongSelf.resultsText appendString:labelString];
+                  }
+                }
+                [strongSelf showResults];
+                // [END_EXCLUDE]
+              }];
   // [END detect_object]
 }
 
@@ -1166,7 +1200,8 @@ typedef NS_ENUM(NSInteger, DetectorPickerRow) {
     case DetectorPickerRowDetectPose:
     case DetectorPickerRowDetectPoseAccurate: {
       MLKCommonPoseDetectorOptions *options = activeDetectorRow == DetectorPickerRowDetectPose
-          ? [[MLKPoseDetectorOptions alloc] init] : [[MLKAccuratePoseDetectorOptions alloc] init];
+                                                  ? [[MLKPoseDetectorOptions alloc] init]
+                                                  : [[MLKAccuratePoseDetectorOptions alloc] init];
       options.detectorMode = MLKPoseDetectorModeSingleImage;
       self.poseDetector = [MLKPoseDetector poseDetectorWithOptions:options];
       break;

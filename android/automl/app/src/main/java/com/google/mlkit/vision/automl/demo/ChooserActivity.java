@@ -16,10 +16,12 @@
 
 package com.google.mlkit.vision.automl.demo;
 
+import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.os.Build.VERSION;
+import android.os.Build.VERSION_CODES;
 import android.os.Bundle;
 import android.os.StrictMode;
 import androidx.appcompat.app.AppCompatActivity;
@@ -45,18 +47,32 @@ public final class ChooserActivity extends AppCompatActivity
     implements OnRequestPermissionsResultCallback, AdapterView.OnItemClickListener {
   private static final String TAG = "ChooserActivity";
   private static final int PERMISSION_REQUESTS = 1;
+  private static final String[] REQUIRED_RUNTIME_PERMISSIONS = {
+    Manifest.permission.CAMERA,
+    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+    Manifest.permission.READ_EXTERNAL_STORAGE
+  };
 
+  @SuppressWarnings("NewApi") // CameraX is only available on API 21+
   private static final Class<?>[] CLASSES =
-      new Class<?>[] {
-        LivePreviewActivity.class, StillImageActivity.class, CameraXLivePreviewActivity.class,
-      };
+      VERSION.SDK_INT < VERSION_CODES.LOLLIPOP
+          ? new Class<?>[] {
+            LivePreviewActivity.class, StillImageActivity.class,
+          }
+          : new Class<?>[] {
+            LivePreviewActivity.class, StillImageActivity.class, CameraXLivePreviewActivity.class,
+          };
 
   private static final int[] DESCRIPTION_IDS =
-      new int[] {
-        R.string.desc_camera_source_activity,
-        R.string.desc_still_image_activity,
-        R.string.desc_camerax_live_preview_activity,
-      };
+      VERSION.SDK_INT < VERSION_CODES.LOLLIPOP
+          ? new int[] {
+            R.string.desc_camera_source_activity, R.string.desc_still_image_activity,
+          }
+          : new int[] {
+            R.string.desc_camera_source_activity,
+            R.string.desc_still_image_activity,
+            R.string.desc_camerax_live_preview_activity,
+          };
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
@@ -97,24 +113,8 @@ public final class ChooserActivity extends AppCompatActivity
     startActivity(new Intent(this, clicked));
   }
 
-  private String[] getRequiredPermissions() {
-    try {
-      PackageInfo info =
-          this.getPackageManager()
-              .getPackageInfo(this.getPackageName(), PackageManager.GET_PERMISSIONS);
-      String[] ps = info.requestedPermissions;
-      if (ps != null && ps.length > 0) {
-        return ps;
-      } else {
-        return new String[0];
-      }
-    } catch (Exception e) {
-      return new String[0];
-    }
-  }
-
   private boolean allPermissionsGranted() {
-    for (String permission : getRequiredPermissions()) {
+    for (String permission : REQUIRED_RUNTIME_PERMISSIONS) {
       if (!isPermissionGranted(this, permission)) {
         return false;
       }
@@ -124,7 +124,7 @@ public final class ChooserActivity extends AppCompatActivity
 
   private void getRuntimePermissions() {
     List<String> allNeededPermissions = new ArrayList<>();
-    for (String permission : getRequiredPermissions()) {
+    for (String permission : REQUIRED_RUNTIME_PERMISSIONS) {
       if (!isPermissionGranted(this, permission)) {
         allNeededPermissions.add(permission);
       }

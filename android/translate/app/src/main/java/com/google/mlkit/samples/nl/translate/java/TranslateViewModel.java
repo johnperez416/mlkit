@@ -17,13 +17,13 @@
 package com.google.mlkit.samples.nl.translate.java;
 
 import android.app.Application;
+import android.util.LruCache;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.MediatorLiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.Observer;
-import android.util.LruCache;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import com.google.android.gms.tasks.Continuation;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnSuccessListener;
@@ -39,10 +39,14 @@ import com.google.mlkit.nl.translate.TranslatorOptions;
 import com.google.mlkit.samples.nl.translate.R;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+/**
+ * Model class for tracking available models and performing live translations
+ */
 public class TranslateViewModel extends AndroidViewModel {
   // This specifies the number of translators instance we want to keep in our LRU cache.
   // Each instance of the translator is built with different options based on the source
@@ -70,6 +74,8 @@ public class TranslateViewModel extends AndroidViewModel {
   MediatorLiveData<ResultOrError> translatedText = new MediatorLiveData<>();
   MutableLiveData<List<String>> availableModels = new MutableLiveData<>();
 
+  HashMap<String, Task<Void>> pendingDownloads = new HashMap<>();
+
   public TranslateViewModel(@NonNull Application application) {
     super(application);
     modelManager = RemoteModelManager.getInstance();
@@ -83,6 +89,7 @@ public class TranslateViewModel extends AndroidViewModel {
               translatedText.setValue(new ResultOrError(task.getResult(), null));
             } else {
               translatedText.setValue(new ResultOrError(null, task.getException()));
+              task.getException().printStackTrace();
             }
             // Update the list of downloaded models as more may have been
             // automatically downloaded due to requested translation.
@@ -148,15 +155,34 @@ public class TranslateViewModel extends AndroidViewModel {
   // Starts downloading a remote model for local translation.
   void downloadLanguage(Language language) {
     TranslateRemoteModel model = getModel(TranslateLanguage.fromLanguageTag(language.getCode()));
-    modelManager
-        .download(model, new DownloadConditions.Builder().build())
-        .addOnCompleteListener(
-            new OnCompleteListener<Void>() {
-              @Override
-              public void onComplete(@NonNull Task<Void> task) {
-                fetchDownloadedModels();
-              }
-            });
+    Task<Void> downloadTask;
+    if (pendingDownloads.containsKey(language.code)) {
+      downloadTask = pendingDownloads.get(language.code);
+      // found existing task. exiting
+      if (downloadTask != null && !downloadTask.isCanceled()) {
+        return;
+      }
+    }
+    downloadTask =
+        modelManager
+            .download(model, new DownloadConditions.Builder().build())
+            .addOnCompleteListener(
+                new OnCompleteListener<Void>() {
+                  @Override
+                  public void onComplete(@NonNull Task<Void> task) {
+                    pendingDownloads.remove(language.getCode());
+                    fetchDownloadedModels();
+                  }
+                });
+    pendingDownloads.put(language.code, downloadTask);
+  }
+
+  // Returns if a new model download task should be started.
+  boolean requiresModelDownload(Language lang, @Nullable List<String> downloadedModels) {
+    if (downloadedModels == null) {
+      return true;
+    }
+    return !downloadedModels.contains(lang.code) && !pendingDownloads.containsKey(lang.code);
   }
 
   // Deletes a locally stored translation model.
@@ -171,6 +197,7 @@ public class TranslateViewModel extends AndroidViewModel {
                 fetchDownloadedModels();
               }
             });
+    pendingDownloads.remove(language.code);
   }
 
   public Task<String> translate() {

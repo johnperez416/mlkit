@@ -23,7 +23,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import com.google.mlkit.vision.barcode.Barcode;
+import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.demo.GraphicOverlay;
 import com.google.mlkit.vision.demo.GraphicOverlay.Graphic;
 
@@ -81,7 +81,7 @@ public class BarcodeGraphic extends Graphic {
 
     // Draws other object info.
     float lineHeight = TEXT_SIZE + (2 * STROKE_WIDTH);
-    float textWidth = barcodePaint.measureText(barcode.getRawValue());
+    float textWidth = barcodePaint.measureText(barcode.getDisplayValue());
     canvas.drawRect(
         rect.left - STROKE_WIDTH,
         rect.top - lineHeight,
@@ -89,6 +89,6 @@ public class BarcodeGraphic extends Graphic {
         rect.top,
         labelPaint);
     // Renders the barcode at the bottom of the box.
-    canvas.drawText(barcode.getRawValue(), rect.left, rect.top - STROKE_WIDTH, barcodePaint);
+    canvas.drawText(barcode.getDisplayValue(), rect.left, rect.top - STROKE_WIDTH, barcodePaint);
   }
 }

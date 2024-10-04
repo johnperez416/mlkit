@@ -82,14 +82,10 @@ NS_ASSUME_NONNULL_BEGIN
   MLKEntityExtractionModelIdentifier language = self.languages[indexPath.row];
   NSString *code = MLKEntityExtractionLanguageTagForModelIdentifier(language);
   cell.textLabel.text = [NSLocale.currentLocale localizedStringForLanguageCode:code];
-  if (@available(iOS 13.0, *)) {
-    if ([self.downloadedLanguages containsObject:language]) {
-      cell.imageView.image = [UIImage systemImageNamed:@"trash.circle"];
-    } else {
-      cell.imageView.image = [UIImage systemImageNamed:@"icloud.and.arrow.down"];
-    }
+  if ([self.downloadedLanguages containsObject:language]) {
+    cell.imageView.image = [UIImage imageNamed:@"delete_24pt"];
   } else {
-    // TODO(mikie): status indicator on iOS < 13
+    cell.imageView.image = [UIImage imageNamed:@"cloud_download_24pt"];
   }
   return cell;
 }

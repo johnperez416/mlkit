@@ -5,14 +5,15 @@
     package="com.google.mlkit.vision.demo"
     android:installLocation="auto">
     <!-- CameraX libraries require minSdkVersion 21, while this quickstart app
-    supports low to 16. Needs to use overrideLibrary to make the merger tool
+    supports low to 19. Needs to use overrideLibrary to make the merger tool
     ignore this conflict and import the libraries while keeping the app's lower
     minSdkVersion value. In code, will check SDK version, before calling CameraX
     APIs. -->
     <uses-sdk
         tools:overrideLibrary="
           androidx.camera.camera2, androidx.camera.core,
-          androidx.camera.view, androidx.camera.lifecycle" />
+          androidx.camera.view, androidx.camera.lifecycle,
+          com.google.mlkit.vision.segmentation.subject" />
 
     <uses-feature android:name="android.hardware.camera"/>
 
@@ -35,7 +36,7 @@
           your app is installed.-->
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
-            android:value="barcode,face,ocr,ica"/>
+            android:value="barcode,face,ocr,ocr_chinese,ocr_devanagari,ocr_japanese,ocr_korean,ica,custom_ica,subject_segment"/>
 
         <activity
             android:name=".EntryChoiceActivity"
@@ -49,59 +50,59 @@
 
         <activity
             android:name=".java.ChooserActivity"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <activity
             android:name=".java.LivePreviewActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".java.CameraXLivePreviewActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".java.CameraXSourceDemoActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".java.StillImageActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".kotlin.ChooserActivity"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <activity
             android:name=".kotlin.LivePreviewActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".kotlin.CameraXLivePreviewActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".kotlin.CameraXSourceDemoActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 
         <activity
             android:name=".kotlin.StillImageActivity"
-            android:exported="true"
+            android:exported="false"
             android:theme="@style/AppTheme">
         </activity>
 

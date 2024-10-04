@@ -16,10 +16,7 @@
 
 package com.google.mlkit.vision.demo.java;
 
-import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
@@ -32,17 +29,16 @@ import android.widget.ImageView;
 import android.widget.Spinner;
 import android.widget.Toast;
 import android.widget.ToggleButton;
-import androidx.core.app.ActivityCompat;
-import androidx.core.app.ActivityCompat.OnRequestPermissionsResultCallback;
-import androidx.core.content.ContextCompat;
 import com.google.android.gms.common.annotation.KeepName;
 import com.google.mlkit.common.model.LocalModel;
+import com.google.mlkit.vision.barcode.ZoomSuggestionOptions.ZoomCallback;
 import com.google.mlkit.vision.demo.CameraSource;
 import com.google.mlkit.vision.demo.CameraSourcePreview;
 import com.google.mlkit.vision.demo.GraphicOverlay;
 import com.google.mlkit.vision.demo.R;
 import com.google.mlkit.vision.demo.java.barcodescanner.BarcodeScannerProcessor;
 import com.google.mlkit.vision.demo.java.facedetector.FaceDetectorProcessor;
+import com.google.mlkit.vision.demo.java.facemeshdetector.FaceMeshDetectorProcessor;
 import com.google.mlkit.vision.demo.java.labeldetector.LabelDetectorProcessor;
 import com.google.mlkit.vision.demo.java.objectdetector.ObjectDetectorProcessor;
 import com.google.mlkit.vision.demo.java.posedetector.PoseDetectorProcessor;
@@ -50,12 +46,16 @@ import com.google.mlkit.vision.demo.java.segmenter.SegmenterProcessor;
 import com.google.mlkit.vision.demo.java.textdetector.TextRecognitionProcessor;
 import com.google.mlkit.vision.demo.preference.PreferenceUtils;
 import com.google.mlkit.vision.demo.preference.SettingsActivity;
-import com.google.mlkit.vision.face.FaceDetectorOptions;
 import com.google.mlkit.vision.label.custom.CustomImageLabelerOptions;
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions;
 import com.google.mlkit.vision.objects.custom.CustomObjectDetectorOptions;
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions;
 import com.google.mlkit.vision.pose.PoseDetectorOptionsBase;
+import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions;
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions;
+import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions;
+import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,24 +63,26 @@ import java.util.List;
 /** Live preview demo for ML Kit APIs. */
 @KeepName
 public final class LivePreviewActivity extends AppCompatActivity
-    implements OnRequestPermissionsResultCallback,
-        OnItemSelectedListener,
-        CompoundButton.OnCheckedChangeListener {
+    implements OnItemSelectedListener, CompoundButton.OnCheckedChangeListener {
   private static final String OBJECT_DETECTION = "Object Detection";
   private static final String OBJECT_DETECTION_CUSTOM = "Custom Object Detection";
   private static final String CUSTOM_AUTOML_OBJECT_DETECTION =
       "Custom AutoML Object Detection (Flower)";
   private static final String FACE_DETECTION = "Face Detection";
-  private static final String TEXT_RECOGNITION = "Text Recognition";
   private static final String BARCODE_SCANNING = "Barcode Scanning";
   private static final String IMAGE_LABELING = "Image Labeling";
   private static final String IMAGE_LABELING_CUSTOM = "Custom Image Labeling (Birds)";
   private static final String CUSTOM_AUTOML_LABELING = "Custom AutoML Image Labeling (Flower)";
   private static final String POSE_DETECTION = "Pose Detection";
   private static final String SELFIE_SEGMENTATION = "Selfie Segmentation";
+  private static final String TEXT_RECOGNITION_LATIN = "Text Recognition Latin";
+  private static final String TEXT_RECOGNITION_CHINESE = "Text Recognition Chinese";
+  private static final String TEXT_RECOGNITION_DEVANAGARI = "Text Recognition Devanagari";
+  private static final String TEXT_RECOGNITION_JAPANESE = "Text Recognition Japanese";
+  private static final String TEXT_RECOGNITION_KOREAN = "Text Recognition Korean";
+  private static final String FACE_MESH_DETECTION = "Face Mesh Detection (Beta)";
 
   private static final String TAG = "LivePreviewActivity";
-  private static final int PERMISSION_REQUESTS = 1;
 
   private CameraSource cameraSource = null;
   private CameraSourcePreview preview;
@@ -109,13 +111,18 @@ public final class LivePreviewActivity extends AppCompatActivity
     options.add(OBJECT_DETECTION_CUSTOM);
     options.add(CUSTOM_AUTOML_OBJECT_DETECTION);
     options.add(FACE_DETECTION);
-    options.add(TEXT_RECOGNITION);
     options.add(BARCODE_SCANNING);
     options.add(IMAGE_LABELING);
     options.add(IMAGE_LABELING_CUSTOM);
     options.add(CUSTOM_AUTOML_LABELING);
     options.add(POSE_DETECTION);
     options.add(SELFIE_SEGMENTATION);
+    options.add(TEXT_RECOGNITION_LATIN);
+    options.add(TEXT_RECOGNITION_CHINESE);
+    options.add(TEXT_RECOGNITION_DEVANAGARI);
+    options.add(TEXT_RECOGNITION_JAPANESE);
+    options.add(TEXT_RECOGNITION_KOREAN);
+    options.add(FACE_MESH_DETECTION);
 
     // Creating adapter for spinner
     ArrayAdapter<String> dataAdapter = new ArrayAdapter<>(this, R.layout.spinner_style, options);
@@ -137,11 +144,7 @@ public final class LivePreviewActivity extends AppCompatActivity
           startActivity(intent);
         });
 
-    if (allPermissionsGranted()) {
-      createCameraSource(selectedModel);
-    } else {
-      getRuntimePermissions();
-    }
+    createCameraSource(selectedModel);
   }
 
   @Override
@@ -151,12 +154,8 @@ public final class LivePreviewActivity extends AppCompatActivity
     selectedModel = parent.getItemAtPosition(pos).toString();
     Log.d(TAG, "Selected model: " + selectedModel);
     preview.stop();
-    if (allPermissionsGranted()) {
-      createCameraSource(selectedModel);
-      startCameraSource();
-    } else {
-      getRuntimePermissions();
-    }
+    createCameraSource(selectedModel);
+    startCameraSource();
   }
 
   @Override
@@ -214,20 +213,47 @@ public final class LivePreviewActivity extends AppCompatActivity
           cameraSource.setMachineLearningFrameProcessor(
               new ObjectDetectorProcessor(this, customAutoMLODTOptions));
           break;
-        case TEXT_RECOGNITION:
-          Log.i(TAG, "Using on-device Text recognition Processor");
-          cameraSource.setMachineLearningFrameProcessor(new TextRecognitionProcessor(this));
+        case TEXT_RECOGNITION_LATIN:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin.");
+          cameraSource.setMachineLearningFrameProcessor(
+              new TextRecognitionProcessor(this, new TextRecognizerOptions.Builder().build()));
+          break;
+        case TEXT_RECOGNITION_CHINESE:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Chinese.");
+          cameraSource.setMachineLearningFrameProcessor(
+              new TextRecognitionProcessor(
+                  this, new ChineseTextRecognizerOptions.Builder().build()));
+          break;
+        case TEXT_RECOGNITION_DEVANAGARI:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Devanagari.");
+          cameraSource.setMachineLearningFrameProcessor(
+              new TextRecognitionProcessor(
+                  this, new DevanagariTextRecognizerOptions.Builder().build()));
+          break;
+        case TEXT_RECOGNITION_JAPANESE:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Japanese.");
+          cameraSource.setMachineLearningFrameProcessor(
+              new TextRecognitionProcessor(
+                  this, new JapaneseTextRecognizerOptions.Builder().build()));
+          break;
+        case TEXT_RECOGNITION_KOREAN:
+          Log.i(TAG, "Using on-device Text recognition Processor for Latin and Korean.");
+          cameraSource.setMachineLearningFrameProcessor(
+              new TextRecognitionProcessor(
+                  this, new KoreanTextRecognizerOptions.Builder().build()));
           break;
         case FACE_DETECTION:
           Log.i(TAG, "Using Face Detector Processor");
-          FaceDetectorOptions faceDetectorOptions =
-              PreferenceUtils.getFaceDetectorOptionsForLivePreview(this);
-          cameraSource.setMachineLearningFrameProcessor(
-              new FaceDetectorProcessor(this, faceDetectorOptions));
+          cameraSource.setMachineLearningFrameProcessor(new FaceDetectorProcessor(this));
           break;
         case BARCODE_SCANNING:
           Log.i(TAG, "Using Barcode Detector Processor");
-          cameraSource.setMachineLearningFrameProcessor(new BarcodeScannerProcessor(this));
+          ZoomCallback zoomCallback = null;
+          if (PreferenceUtils.shouldEnableAutoZoom(this)) {
+            zoomCallback = zoomLevel -> cameraSource.setZoom(zoomLevel);
+          }
+          cameraSource.setMachineLearningFrameProcessor(
+              new BarcodeScannerProcessor(this, zoomCallback));
           break;
         case IMAGE_LABELING:
           Log.i(TAG, "Using Image Label Detector Processor");
@@ -265,12 +291,21 @@ public final class LivePreviewActivity extends AppCompatActivity
           boolean visualizeZ = PreferenceUtils.shouldPoseDetectionVisualizeZ(this);
           boolean rescaleZ = PreferenceUtils.shouldPoseDetectionRescaleZForVisualization(this);
           boolean runClassification = PreferenceUtils.shouldPoseDetectionRunClassification(this);
-          cameraSource.setMachineLearningFrameProcessor(new PoseDetectorProcessor(
-              this, poseDetectorOptions, shouldShowInFrameLikelihood, visualizeZ, rescaleZ,
-              runClassification, /* isStreamMode = */true));
+          cameraSource.setMachineLearningFrameProcessor(
+              new PoseDetectorProcessor(
+                  this,
+                  poseDetectorOptions,
+                  shouldShowInFrameLikelihood,
+                  visualizeZ,
+                  rescaleZ,
+                  runClassification,
+                  /* isStreamMode = */ true));
           break;
         case SELFIE_SEGMENTATION:
           cameraSource.setMachineLearningFrameProcessor(new SegmenterProcessor(this));
+          break;
+        case FACE_MESH_DETECTION:
+          cameraSource.setMachineLearningFrameProcessor(new FaceMeshDetectorProcessor(this));
           break;
         default:
           Log.e(TAG, "Unknown model: " + model);
@@ -329,64 +364,5 @@ public final class LivePreviewActivity extends AppCompatActivity
     if (cameraSource != null) {
       cameraSource.release();
     }
-  }
-
-  private String[] getRequiredPermissions() {
-    try {
-      PackageInfo info =
-          this.getPackageManager()
-              .getPackageInfo(this.getPackageName(), PackageManager.GET_PERMISSIONS);
-      String[] ps = info.requestedPermissions;
-      if (ps != null && ps.length > 0) {
-        return ps;
-      } else {
-        return new String[0];
-      }
-    } catch (Exception e) {
-      return new String[0];
-    }
-  }
-
-  private boolean allPermissionsGranted() {
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private void getRuntimePermissions() {
-    List<String> allNeededPermissions = new ArrayList<>();
-    for (String permission : getRequiredPermissions()) {
-      if (!isPermissionGranted(this, permission)) {
-        allNeededPermissions.add(permission);
-      }
-    }
-
-    if (!allNeededPermissions.isEmpty()) {
-      ActivityCompat.requestPermissions(
-          this, allNeededPermissions.toArray(new String[0]), PERMISSION_REQUESTS);
-    }
-  }
-
-  @Override
-  public void onRequestPermissionsResult(
-      int requestCode, String[] permissions, int[] grantResults) {
-    Log.i(TAG, "Permission granted!");
-    if (allPermissionsGranted()) {
-      createCameraSource(selectedModel);
-    }
-    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-  }
-
-  private static boolean isPermissionGranted(Context context, String permission) {
-    if (ContextCompat.checkSelfPermission(context, permission)
-        == PackageManager.PERMISSION_GRANTED) {
-      Log.i(TAG, "Permission granted: " + permission);
-      return true;
-    }
-    Log.i(TAG, "Permission NOT granted: " + permission);
-    return false;
   }
 }

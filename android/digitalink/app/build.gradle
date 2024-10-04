@@ -3,20 +3,20 @@ apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
 
 android {
-    compileSdkVersion 30
+    compileSdkVersion 31
     defaultConfig {
         applicationId "com.google.mlkit.samples.vision.digitalink"
-        minSdkVersion 16
-        targetSdkVersion 30
+        minSdkVersion 19
+        targetSdkVersion 31
         multiDexEnabled true
         versionCode 1
         versionName "1.0"
+        setProperty("archivesBaseName", "vision-digital-ink")
         testApplicationId "com.google.mlkit.vision.digitalink"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
-        testBuildType "release"
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro', 'proguard.cfg'
@@ -42,11 +42,5 @@ dependencies {
 
     implementation 'androidx.appcompat:appcompat:1.2.0'
 
-    implementation 'com.google.mlkit:digital-ink-recognition:16.2.0'
-
-    androidTestImplementation 'androidx.test:rules:1.2.0'
-    androidTestImplementation 'androidx.test:runner:1.2.0'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.1'
-    androidTestImplementation 'com.google.truth:truth:1.0.1'
-
+    implementation 'com.google.mlkit:digital-ink-recognition:18.1.0'
 }
