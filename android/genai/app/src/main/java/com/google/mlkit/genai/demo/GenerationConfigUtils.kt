@@ -128,4 +128,17 @@ object GenerationConfigUtils {
       putBoolean(context.getString(R.string.pref_key_use_default_config), useDefaultConfig)
     }
   }
+
+  @JvmStatic
+  fun getUseExplicitCache(context: Context): Boolean {
+    return PreferenceManager.getDefaultSharedPreferences(context)
+      .getBoolean(context.getString(R.string.pref_key_use_explicit_cache), false)
+  }
+
+  @JvmStatic
+  fun setUseExplicitCache(context: Context, useExplicitCache: Boolean) {
+    PreferenceManager.getDefaultSharedPreferences(context).edit {
+      putBoolean(context.getString(R.string.pref_key_use_explicit_cache), useExplicitCache)
+    }
+  }
 }

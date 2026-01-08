@@ -29,9 +29,12 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.bumptech.glide.Glide
+import com.google.mlkit.genai.demo.ContentItem.CacheRequestItem
 import com.google.mlkit.genai.demo.ContentItem.ImageItem
 import com.google.mlkit.genai.demo.ContentItem.TextAndImagesItem
 import com.google.mlkit.genai.demo.ContentItem.TextItem
+import com.google.mlkit.genai.demo.ContentItem.TextWithPrefixCacheItem
 import com.google.mlkit.genai.demo.ContentItem.TextWithPromptPrefixItem
 
 /** A recycler view adapter for displaying the request and response views. */
@@ -80,12 +83,34 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
         TextWithPromptPrefixViewHolder(
           layoutInflater.inflate(R.layout.row_item_request_text, viewGroup, false)
         )
+      VIEW_TYPE_CACHE_REQUEST ->
+        CacheRequestViewHolder(
+          layoutInflater.inflate(R.layout.row_item_request_text, viewGroup, false)
+        )
+      VIEW_TYPE_REQUEST_TEXT_WITH_PREFIX_CACHE ->
+        TextWithPrefixCacheViewHolder(
+          layoutInflater.inflate(R.layout.row_item_request_text, viewGroup, false)
+        )
       else -> throw IllegalArgumentException("Invalid view type $viewType")
     }
   }
 
   override fun onBindViewHolder(viewHolder: ViewHolder, position: Int) {
     (viewHolder as ContentViewHolder).bind(contentList[position])
+  }
+
+  override fun onViewRecycled(holder: ViewHolder) {
+    super.onViewRecycled(holder)
+    if (holder is ImageViewHolder) {
+      Glide.with(holder.itemView).clear(holder.contentImageView)
+    } else if (holder is TextAndImagesViewHolder) {
+      for (i in 0 until holder.imageContainer.childCount) {
+        val view = holder.imageContainer.getChildAt(i)
+        if (view is ImageView) {
+          Glide.with(view).clear(view)
+        }
+      }
+    }
   }
 
   override fun getItemCount(): Int {
@@ -134,11 +159,11 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
   /** Hosts image request item view. */
   class ImageViewHolder(itemView: View) : ViewHolder(itemView), ContentViewHolder {
 
-    private val contentImageView: ImageView = itemView.findViewById(R.id.content_image_view)
+    val contentImageView: ImageView = itemView.findViewById(R.id.content_image_view)
 
     override fun bind(item: ContentItem) {
       if (item is ImageItem) {
-        contentImageView.setImageURI(item.imageUri)
+        Glide.with(itemView).load(item.imageUri).into(contentImageView)
       }
     }
   }
@@ -146,7 +171,7 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
   /** Hosts combined text and image request item view. */
   class TextAndImagesViewHolder(itemView: View) : ViewHolder(itemView), ContentViewHolder {
     private val messageText: TextView = itemView.findViewById(R.id.chat_message_text)
-    private val imageContainer: LinearLayout = itemView.findViewById(R.id.image_container)
+    val imageContainer: LinearLayout = itemView.findViewById(R.id.image_container)
     private val bubbleLayout: LinearLayout = itemView.findViewById(R.id.chat_bubble_layout)
 
     private val defaultTextColors: ColorStateList = messageText.textColors
@@ -170,7 +195,7 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
           val layoutParams = LinearLayout.LayoutParams(400, 400)
           layoutParams.setMargins(0, 0, 16, 0)
           imageView.layoutParams = layoutParams
-          imageView.setImageURI(uri)
+          Glide.with(imageView).load(uri).into(imageView)
           imageView.scaleType = ImageView.ScaleType.CENTER_CROP
           imageContainer.addView(imageView)
         }
@@ -203,6 +228,46 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
     }
   }
 
+  /** Hosts text request with prefix cache item view. */
+  class TextWithPrefixCacheViewHolder(itemView: View) : ViewHolder(itemView), ContentViewHolder {
+    private val contentTextView: TextView = itemView.findViewById(R.id.content_text_view)
+    private val defaultTextColors: ColorStateList = contentTextView.textColors
+
+    override fun bind(item: ContentItem) {
+      if (item !is TextWithPrefixCacheItem) {
+        return
+      }
+      contentTextView.setTextColor(defaultTextColors)
+
+      contentTextView.text =
+        contentTextView.context.getString(
+          R.string.message_format_cache_name_and_suffix,
+          item.cacheName,
+          item.dynamicSuffix,
+        )
+    }
+  }
+
+  /** Hosts cache request item view. */
+  class CacheRequestViewHolder(itemView: View) : ViewHolder(itemView), ContentViewHolder {
+    private val contentTextView: TextView = itemView.findViewById(R.id.content_text_view)
+    private val defaultTextColors: ColorStateList = contentTextView.textColors
+
+    override fun bind(item: ContentItem) {
+      if (item !is CacheRequestItem) {
+        return
+      }
+      contentTextView.setTextColor(defaultTextColors)
+
+      contentTextView.text =
+        contentTextView.context.getString(
+          R.string.message_format_cache_request,
+          item.cacheName,
+          item.prefixToCache,
+        )
+    }
+  }
+
   companion object {
     const val VIEW_TYPE_REQUEST_TEXT: Int = 0
     const val VIEW_TYPE_REQUEST_IMAGE: Int = 1
@@ -211,6 +276,8 @@ class ContentAdapter : RecyclerView.Adapter<ViewHolder>() {
     const val VIEW_TYPE_RESPONSE_ERROR: Int = 4
     const val VIEW_TYPE_REQUEST_TEXT_AND_IMAGES: Int = 5
     const val VIEW_TYPE_REQUEST_TEXT_WITH_PROMPT_PREFIX: Int = 6
+    const val VIEW_TYPE_CACHE_REQUEST: Int = 7
+    const val VIEW_TYPE_REQUEST_TEXT_WITH_PREFIX_CACHE: Int = 8
 
     const val STREAMING_INDICATOR: String = "STREAMING...\n"
   }

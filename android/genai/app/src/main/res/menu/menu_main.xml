@@ -49,4 +49,11 @@
       android:checked="false"
       android:visible="false"
       app:showAsAction="never" />
+  <item
+      android:id="@+id/action_explicit_cache"
+      android:title="@string/action_explicit_cache"
+      android:checkable="true"
+      android:checked="false"
+      android:visible="false"
+      app:showAsAction="never" />
 </menu>

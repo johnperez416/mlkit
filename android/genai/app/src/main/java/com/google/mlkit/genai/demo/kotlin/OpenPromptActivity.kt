@@ -15,6 +15,7 @@
  */
 package com.google.mlkit.genai.demo.kotlin
 
+import android.app.AlertDialog
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -25,6 +26,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -33,6 +35,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.concurrent.futures.CallbackToFutureAdapter
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.bumptech.glide.Glide
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.mlkit.genai.common.DownloadCallback
 import com.google.mlkit.genai.common.DownloadStatus
@@ -50,6 +53,7 @@ import com.google.mlkit.genai.prompt.GenerativeModel
 import com.google.mlkit.genai.prompt.ImagePart
 import com.google.mlkit.genai.prompt.PromptPrefix
 import com.google.mlkit.genai.prompt.TextPart
+import com.google.mlkit.genai.prompt.createCachedContextRequest
 import com.google.mlkit.genai.prompt.generateContentRequest
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +69,7 @@ import kotlinx.coroutines.runBlocking
  */
 class OpenPromptActivity :
   BaseActivity<ContentItem>(), GenerationConfigDialog.OnConfigUpdateListener {
+  private val TAG = "OpenPromptActivity"
   private val ACTION_CLEAR_CACHES = 1000
 
   private var generativeModel: GenerativeModel? = null
@@ -74,6 +79,7 @@ class OpenPromptActivity :
   private lateinit var imagePreview: ImageView
   private lateinit var configButton: Button
   private lateinit var prefixEditText: EditText
+  private lateinit var createCacheCheckBox: CheckBox
 
   private var selectedImageUri: Uri? = null
 
@@ -83,12 +89,13 @@ class OpenPromptActivity :
   private var curMaxOutputTokens: Int? = null
   private var curCandidateCount: Int? = null
   private var useDefaultConfig = false
+  private var useExplicitCache = false
 
   private val pickImageLauncher =
     registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
       if (uri != null) {
         selectedImageUri = uri
-        imagePreview.setImageURI(uri)
+        Glide.with(this).load(uri).into(imagePreview)
         imagePreview.visibility = View.VISIBLE
         Toast.makeText(this, "1 image selected", Toast.LENGTH_SHORT).show()
       } else {
@@ -104,6 +111,12 @@ class OpenPromptActivity :
     imagePreview = findViewById(R.id.image_thumbnail_preview_input)
     configButton = findViewById(R.id.config_button)
     prefixEditText = findViewById(R.id.prefix_edit_text)
+    createCacheCheckBox = findViewById(R.id.create_cache_checkbox)
+    createCacheCheckBox.setOnCheckedChangeListener { _, _ ->
+      prefixEditText.setText("")
+      updateRequestEditTextHint()
+      updatePrefixEditTextState()
+    }
 
     selectImageButton.setOnClickListener { pickImageLauncher.launch("image/*") }
 
@@ -111,12 +124,37 @@ class OpenPromptActivity :
     imagePreview.setOnClickListener {
       selectedImageUri = null
       imagePreview.visibility = View.GONE
+      Glide.with(this).clear(imagePreview)
       Toast.makeText(this, "Image removed", Toast.LENGTH_SHORT).show()
     }
 
     configButton.setOnClickListener { GenerationConfigDialog().show(supportFragmentManager, null) }
 
     sendButton.setOnClickListener {
+      if (useExplicitCache) {
+        val cacheName = prefixEditText.text.toString().trim()
+        if (TextUtils.isEmpty(cacheName)) {
+          Toast.makeText(this, R.string.cache_name_empty, Toast.LENGTH_SHORT).show()
+          return@setOnClickListener
+        }
+        val text = requestEditText.text.toString().trim()
+        if (createCacheCheckBox.isChecked) {
+          if (TextUtils.isEmpty(text)) {
+            Toast.makeText(this, R.string.prefix_to_cache_empty, Toast.LENGTH_SHORT).show()
+            return@setOnClickListener
+          }
+          onSend(ContentItem.CacheRequestItem.fromRequest(cacheName, text))
+        } else {
+          if (TextUtils.isEmpty(text)) {
+            Toast.makeText(this, R.string.input_message_is_empty, Toast.LENGTH_SHORT).show()
+            return@setOnClickListener
+          }
+          onSend(ContentItem.TextWithPrefixCacheItem.fromRequest(cacheName, text))
+        }
+        requestEditText.setText("")
+        return@setOnClickListener
+      }
+
       val requestText = requestEditText.text.toString().trim()
       if (TextUtils.isEmpty(requestText)) {
         Toast.makeText(this, R.string.input_message_is_empty, Toast.LENGTH_SHORT).show()
@@ -141,6 +179,7 @@ class OpenPromptActivity :
 
       requestEditText.setText("")
       imagePreview.visibility = View.GONE
+      Glide.with(this).clear(imagePreview)
       selectedImageUri = null
     }
 
@@ -151,16 +190,54 @@ class OpenPromptActivity :
 
   override fun onConfigUpdated() {
     useDefaultConfig = GenerationConfigUtils.getUseDefaultConfig(applicationContext)
-    prefixEditText.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
-    configButton.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
-    selectImageButton.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
-    imagePreview.visibility =
-      if (useDefaultConfig || selectedImageUri == null) View.GONE else View.VISIBLE
+    if (useDefaultConfig) {
+      // Cache cannot be used in the simple utility API.
+      GenerationConfigUtils.setUseExplicitCache(applicationContext, false)
+    }
+    useExplicitCache = GenerationConfigUtils.getUseExplicitCache(applicationContext)
+
+    if (useExplicitCache) {
+      prefixEditText.visibility = View.VISIBLE
+      prefixEditText.setHint(R.string.hint_add_cache_name)
+
+      createCacheCheckBox.visibility = View.VISIBLE
+      configButton.visibility = View.VISIBLE
+      selectImageButton.visibility = View.GONE
+      imagePreview.visibility = View.GONE
+      selectedImageUri = null
+    } else {
+      prefixEditText.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
+      prefixEditText.setHint(R.string.hint_add_prompt_prefix)
+      createCacheCheckBox.visibility = View.GONE
+      configButton.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
+      selectImageButton.visibility = if (useDefaultConfig) View.GONE else View.VISIBLE
+      imagePreview.visibility =
+        if (useDefaultConfig || selectedImageUri == null) View.GONE else View.VISIBLE
+    }
+    prefixEditText.setText("")
+    requestEditText.setText("")
+    updateRequestEditTextHint()
+    updatePrefixEditTextState()
+
     curTemperature = GenerationConfigUtils.getTemperature(applicationContext)
     curTopK = GenerationConfigUtils.getTopK(applicationContext)
     curSeed = GenerationConfigUtils.getSeed(applicationContext)
     curCandidateCount = GenerationConfigUtils.getCandidateCount(applicationContext)
     curMaxOutputTokens = GenerationConfigUtils.getMaxOutputTokens(applicationContext)
+  }
+
+  private fun updateRequestEditTextHint() {
+    requestEditText.setHint(
+      if (useExplicitCache) {
+        if (createCacheCheckBox.isChecked) {
+          R.string.hint_add_prefix_to_cache
+        } else {
+          R.string.hint_add_suffix_for_inference
+        }
+      } else {
+        R.string.hint_type_a_message
+      }
+    )
   }
 
   override fun getLayoutResId(): Int = R.layout.activity_openprompt
@@ -202,6 +279,9 @@ class OpenPromptActivity :
     request: ContentItem,
     streamingCallback: StreamingCallback?,
   ): ListenableFuture<List<String>> {
+    if (request is ContentItem.CacheRequestItem) {
+      return lifecycleScope.future { listOf(createCache(request)) }
+    }
     return lifecycleScope.future {
       if (request is ContentItem.TextItem && useDefaultConfig) {
         // useDefaultConfig is used for the case where user wants to use utility function with
@@ -227,6 +307,9 @@ class OpenPromptActivity :
   }
 
   override fun runInferenceStreamImpl(request: ContentItem): Flow<String>? {
+    if (request is ContentItem.CacheRequestItem) {
+      return flow { emit(createCache(request)) }
+    }
     if (request is ContentItem.TextItem && useDefaultConfig) {
       // useDefaultConfig is used for the case where user wants to use utility function with
       // default config values
@@ -262,10 +345,56 @@ class OpenPromptActivity :
     }
   }
 
+  private fun showCacheSelectionDialog() {
+    lifecycleScope.launch {
+      val caches = checkNotNull(generativeModel).caches.list()
+      if (caches.isEmpty()) {
+        Toast.makeText(this@OpenPromptActivity, "No caches available to select", Toast.LENGTH_SHORT)
+          .show()
+        return@launch
+      }
+      val cacheNames = caches.map { it.name }.toTypedArray()
+      AlertDialog.Builder(this@OpenPromptActivity)
+        .setTitle("Select Cache")
+        .setItems(cacheNames) { _, which -> prefixEditText.setText(cacheNames[which]) }
+        .show()
+    }
+  }
+
+  private fun updatePrefixEditTextState() {
+    if (useExplicitCache && !createCacheCheckBox.isChecked) {
+      prefixEditText.isFocusable = false
+      prefixEditText.isClickable = true
+      prefixEditText.setOnClickListener { showCacheSelectionDialog() }
+      prefixEditText.setHint(R.string.hint_select_cache_name)
+    } else {
+      prefixEditText.isFocusable = true
+      prefixEditText.isFocusableInTouchMode = true
+      prefixEditText.isClickable = false
+      prefixEditText.setOnClickListener(null)
+      if (useExplicitCache) {
+        prefixEditText.setHint(R.string.hint_add_cache_name)
+      } else {
+        prefixEditText.setHint(R.string.hint_add_prompt_prefix)
+      }
+    }
+  }
+
+  private suspend fun createCache(request: ContentItem.CacheRequestItem): String {
+    val unused =
+      checkNotNull(generativeModel)
+        .caches
+        .create(createCachedContextRequest(request.cacheName, PromptPrefix(request.prefixToCache)))
+
+    // Return a string to indicate the cache is created successfully.
+    return "${getString(R.string.prefix_cached)}: ${request.cacheName}"
+  }
+
   private fun createGenerateContentRequest(request: ContentItem): GenerateContentRequest {
     var requestText = ""
     var promptPrefixText = ""
     var imageBitmap: Bitmap? = null
+    var cachedContextNameText: String? = null
 
     when (request) {
       is ContentItem.TextItem -> {
@@ -279,7 +408,7 @@ class OpenPromptActivity :
               BitmapFactory.decodeStream(inputStream)?.let { bitmap -> imageBitmap = bitmap }
             }
           } catch (e: IOException) {
-            Log.e("OpenPromptActivity", "Error decoding image URI: $uri", e)
+            Log.e(TAG, "Error decoding image URI: $uri", e)
           }
         }
       }
@@ -289,12 +418,19 @@ class OpenPromptActivity :
             BitmapFactory.decodeStream(inputStream)?.let { bitmap -> imageBitmap = bitmap }
           }
         } catch (e: IOException) {
-          Log.e("OpenPromptActivity", "Error decoding image URI: ${request.imageUri}", e)
+          Log.e(TAG, "Error decoding image URI: ${request.imageUri}", e)
         }
       }
       is ContentItem.TextWithPromptPrefixItem -> {
         requestText = request.dynamicSuffix
         promptPrefixText = request.promptPrefix
+      }
+      is ContentItem.TextWithPrefixCacheItem -> {
+        requestText = request.dynamicSuffix
+        cachedContextNameText = request.cacheName
+      }
+      is ContentItem.CacheRequestItem -> {
+        throw IllegalStateException("CacheRequestItem is for creating cache only.")
       }
     }
 
@@ -308,7 +444,11 @@ class OpenPromptActivity :
       }
     } else {
       generateContentRequest(TextPart(requestText)) {
-        promptPrefix = PromptPrefix(promptPrefixText)
+        if (useExplicitCache) {
+          cachedContextName = cachedContextNameText
+        } else {
+          promptPrefix = PromptPrefix(promptPrefixText)
+        }
         temperature = curTemperature
         topK = curTopK
         seed = curSeed
@@ -355,6 +495,10 @@ class OpenPromptActivity :
   }
 
   override suspend fun countTokens(request: ContentItem): CountTokensResponse {
+    if (request is ContentItem.CacheRequestItem) {
+      // Count tokens does not support for cache request by now.
+      return CountTokensResponse(0)
+    }
     val genRequest = createGenerateContentRequest(request)
     return checkNotNull(generativeModel).countTokens(genRequest)
   }
@@ -398,6 +542,11 @@ class OpenPromptActivity :
       isVisible = true
       isChecked = useDefaultConfig
     }
+    menu.findItem(R.id.action_explicit_cache)?.apply {
+      isVisible = true
+      isChecked = useExplicitCache
+      isEnabled = !useDefaultConfig
+    }
     return super.onPrepareOptionsMenu(menu)
   }
 
@@ -405,7 +554,23 @@ class OpenPromptActivity :
     when (item.itemId) {
       ACTION_CLEAR_CACHES -> {
         lifecycleScope.launch {
-          generativeModel?.clearCaches()
+          if (useExplicitCache) {
+            val caches = checkNotNull(generativeModel).caches.list()
+            if (caches.isNotEmpty()) {
+              Log.d(TAG, "Going to delete explicit caches, size: ${caches.size}")
+              for (cacheName in caches.map { it.name }) {
+                if (checkNotNull(generativeModel).caches.delete(cacheName)) {
+                  Log.d(TAG, "Deleted explicit cache: $cacheName")
+                } else {
+                  Log.d(TAG, "Failed to delete explicit cache: $cacheName")
+                }
+              }
+              prefixEditText.setText("")
+            }
+          } else {
+            checkNotNull(generativeModel).clearImplicitCaches()
+            Log.d(TAG, "Cleared implicit caches")
+          }
           Toast.makeText(this@OpenPromptActivity, "Caches cleared", Toast.LENGTH_SHORT).show()
         }
         return true
@@ -414,6 +579,13 @@ class OpenPromptActivity :
         val newState = !item.isChecked
         item.isChecked = newState
         GenerationConfigUtils.setUseDefaultConfig(applicationContext, newState)
+        onConfigUpdated()
+        return true
+      }
+      R.id.action_explicit_cache -> {
+        val newState = !item.isChecked
+        item.isChecked = newState
+        GenerationConfigUtils.setUseExplicitCache(applicationContext, newState)
         onConfigUpdated()
         return true
       }

@@ -405,7 +405,7 @@ abstract class BaseActivity<RequestT : ContentItem> : AppCompatActivity() {
     spinner.adapter = adapter
     spinner.onItemSelectedListener =
       object : AdapterView.OnItemSelectedListener {
-        override fun onItemSelected(parent: AdapterView<*>, view: View, position: Int, id: Long) {
+        override fun onItemSelected(parent: AdapterView<*>, view: View?, position: Int, id: Long) {
           onItemSelected(position)
         }
 

@@ -16,9 +16,11 @@
 package com.google.mlkit.genai.demo
 
 import android.net.Uri
+import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_CACHE_REQUEST
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_REQUEST_IMAGE
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_REQUEST_TEXT
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_REQUEST_TEXT_AND_IMAGES
+import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_REQUEST_TEXT_WITH_PREFIX_CACHE
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_REQUEST_TEXT_WITH_PROMPT_PREFIX
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_RESPONSE
 import com.google.mlkit.genai.demo.ContentAdapter.Companion.VIEW_TYPE_RESPONSE_ERROR
@@ -81,6 +83,34 @@ sealed interface ContentItem {
           dynamicSuffix,
           VIEW_TYPE_REQUEST_TEXT_WITH_PROMPT_PREFIX,
         )
+    }
+  }
+
+  /** A content item that contains a prefix cache name and a dynamic suffix. */
+  data class TextWithPrefixCacheItem(
+    val cacheName: String,
+    val dynamicSuffix: String,
+    override val viewType: Int,
+  ) : ContentItem {
+    companion object {
+      fun fromRequest(cacheName: String, dynamicSuffix: String): TextWithPrefixCacheItem =
+        TextWithPrefixCacheItem(
+          cacheName,
+          dynamicSuffix,
+          VIEW_TYPE_REQUEST_TEXT_WITH_PREFIX_CACHE,
+        )
+    }
+  }
+
+  /** A content item that contains a cache request. */
+  data class CacheRequestItem(
+    val cacheName: String,
+    val prefixToCache: String,
+    override val viewType: Int,
+  ) : ContentItem {
+    companion object {
+      fun fromRequest(cacheName: String, prefixToCache: String): CacheRequestItem =
+        CacheRequestItem(cacheName, prefixToCache, VIEW_TYPE_CACHE_REQUEST)
     }
   }
 }

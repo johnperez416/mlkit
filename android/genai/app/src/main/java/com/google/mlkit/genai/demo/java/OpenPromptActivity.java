@@ -16,7 +16,9 @@
 package com.google.mlkit.genai.demo.java;
 
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
+import static com.google.common.util.concurrent.Futures.immediateFuture;
 
+import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
@@ -27,6 +29,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -35,6 +38,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
+import com.bumptech.glide.Glide;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -46,8 +50,10 @@ import com.google.mlkit.genai.demo.ContentItem;
 import com.google.mlkit.genai.demo.GenerationConfigDialog;
 import com.google.mlkit.genai.demo.GenerationConfigUtils;
 import com.google.mlkit.genai.demo.R;
+import com.google.mlkit.genai.prompt.CachedContext;
 import com.google.mlkit.genai.prompt.Candidate;
 import com.google.mlkit.genai.prompt.CountTokensResponse;
+import com.google.mlkit.genai.prompt.CreateCachedContextRequest;
 import com.google.mlkit.genai.prompt.GenerateContentRequest;
 import com.google.mlkit.genai.prompt.GenerateContentResponse;
 import com.google.mlkit.genai.prompt.Generation;
@@ -56,6 +62,7 @@ import com.google.mlkit.genai.prompt.GenerativeModel;
 import com.google.mlkit.genai.prompt.ImagePart;
 import com.google.mlkit.genai.prompt.PromptPrefix;
 import com.google.mlkit.genai.prompt.TextPart;
+import com.google.mlkit.genai.prompt.java.CachesFutures;
 import com.google.mlkit.genai.prompt.java.GenerativeModelFutures;
 import java.io.IOException;
 import java.io.InputStream;
@@ -73,12 +80,14 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
   private static final int ACTION_CLEAR_CACHES = 1000;
 
   private GenerativeModelFutures generativeModelFutures;
+  private CachesFutures cachesFutures;
   private EditText requestEditText;
   private Button sendButton;
   private ImageButton selectImageButton;
   private ImageView imagePreview;
   private Button configButton;
   private EditText prefixEditText;
+  private CheckBox createCacheCheckBox;
 
   @Nullable private Uri selectedImageUri = null;
 
@@ -88,6 +97,7 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
   @Nullable private Integer curMaxOutputTokens = null;
   @Nullable private Integer curCandidateCount = null;
   private boolean useDefaultConfig = false;
+  private boolean useExplicitCache = false;
 
   private final ActivityResultLauncher<String> pickImageLauncher =
       registerForActivityResult(
@@ -95,7 +105,7 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
           uri -> {
             if (uri != null) {
               selectedImageUri = uri;
-              imagePreview.setImageURI(uri);
+              Glide.with(this).load(uri).into(imagePreview);
               imagePreview.setVisibility(View.VISIBLE);
               Toast.makeText(this, "1 image selected", Toast.LENGTH_SHORT).show();
             } else {
@@ -113,6 +123,13 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
     imagePreview = findViewById(R.id.image_thumbnail_preview_input);
     configButton = findViewById(R.id.config_button);
     prefixEditText = findViewById(R.id.prefix_edit_text);
+    createCacheCheckBox = findViewById(R.id.create_cache_checkbox);
+    createCacheCheckBox.setOnCheckedChangeListener(
+        (buttonView, isChecked) -> {
+          prefixEditText.setText("");
+          updateRequestEditTextHint();
+          updatePrefixEditTextState();
+        });
 
     selectImageButton.setOnClickListener(v -> pickImageLauncher.launch("image/*"));
 
@@ -120,6 +137,7 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
     imagePreview.setOnClickListener(
         v -> {
           selectedImageUri = null;
+          Glide.with(this).clear(imagePreview);
           imagePreview.setVisibility(View.GONE);
           Toast.makeText(this, "Image removed", Toast.LENGTH_SHORT).show();
         });
@@ -129,6 +147,30 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
 
     sendButton.setOnClickListener(
         v -> {
+          if (useExplicitCache) {
+            String cacheName = prefixEditText.getText().toString().trim();
+            if (TextUtils.isEmpty(cacheName)) {
+              Toast.makeText(this, R.string.cache_name_empty, Toast.LENGTH_SHORT).show();
+              return;
+            }
+            String text = requestEditText.getText().toString().trim();
+            if (createCacheCheckBox.isChecked()) {
+              if (TextUtils.isEmpty(text)) {
+                Toast.makeText(this, R.string.prefix_to_cache_empty, Toast.LENGTH_SHORT).show();
+                return;
+              }
+              onSend(ContentItem.CacheRequestItem.Companion.fromRequest(cacheName, text));
+            } else {
+              if (TextUtils.isEmpty(text)) {
+                Toast.makeText(this, R.string.input_message_is_empty, Toast.LENGTH_SHORT).show();
+                return;
+              }
+              onSend(ContentItem.TextWithPrefixCacheItem.Companion.fromRequest(cacheName, text));
+            }
+            requestEditText.setText("");
+            return;
+          }
+
           String requestText = requestEditText.getText().toString().trim();
           if (TextUtils.isEmpty(requestText)) {
             Toast.makeText(this, R.string.input_message_is_empty, Toast.LENGTH_SHORT).show();
@@ -168,16 +210,102 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
   @Override
   public void onConfigUpdated() {
     useDefaultConfig = GenerationConfigUtils.getUseDefaultConfig(getApplicationContext());
-    prefixEditText.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
-    configButton.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
-    selectImageButton.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
-    imagePreview.setVisibility(
-        useDefaultConfig || selectedImageUri == null ? View.GONE : View.VISIBLE);
+    if (useDefaultConfig) {
+      // Cache cannot be used in the simple utility API.
+      GenerationConfigUtils.setUseExplicitCache(getApplicationContext(), false);
+    }
+    useExplicitCache = GenerationConfigUtils.getUseExplicitCache(getApplicationContext());
+
+    if (useExplicitCache) {
+      prefixEditText.setVisibility(View.VISIBLE);
+      prefixEditText.setHint(R.string.hint_add_cache_name);
+      createCacheCheckBox.setVisibility(View.VISIBLE);
+      configButton.setVisibility(View.VISIBLE);
+      selectImageButton.setVisibility(View.GONE);
+      imagePreview.setVisibility(View.GONE);
+      selectedImageUri = null;
+    } else {
+      prefixEditText.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
+      prefixEditText.setHint(R.string.hint_add_prompt_prefix);
+      createCacheCheckBox.setVisibility(View.GONE);
+      configButton.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
+      selectImageButton.setVisibility(useDefaultConfig ? View.GONE : View.VISIBLE);
+      imagePreview.setVisibility(
+          useDefaultConfig || selectedImageUri == null ? View.GONE : View.VISIBLE);
+    }
+    prefixEditText.setText("");
+    requestEditText.setText("");
+    updateRequestEditTextHint();
+    updatePrefixEditTextState();
+
     curTemperature = GenerationConfigUtils.getTemperature(getApplicationContext());
     curTopK = GenerationConfigUtils.getTopK(getApplicationContext());
     curSeed = GenerationConfigUtils.getSeed(getApplicationContext());
     curCandidateCount = GenerationConfigUtils.getCandidateCount(getApplicationContext());
     curMaxOutputTokens = GenerationConfigUtils.getMaxOutputTokens(getApplicationContext());
+  }
+
+  private void updateRequestEditTextHint() {
+    int hintResourceId = R.string.hint_type_a_message;
+    if (useExplicitCache) {
+      if (createCacheCheckBox.isChecked()) {
+        hintResourceId = R.string.hint_add_prefix_to_cache;
+      } else {
+        hintResourceId = R.string.hint_add_suffix_for_inference;
+      }
+    }
+    requestEditText.setHint(hintResourceId);
+  }
+
+  private void showCacheSelectionDialog() {
+    Futures.addCallback(
+        cachesFutures.list(),
+        new FutureCallback<List<CachedContext>>() {
+          @Override
+          public void onSuccess(List<CachedContext> result) {
+            if (result == null || result.isEmpty()) {
+              Toast.makeText(
+                      OpenPromptActivity.this, "No caches available to select", Toast.LENGTH_SHORT)
+                  .show();
+              return;
+            }
+            List<String> cacheNamesList = new ArrayList<>();
+            for (CachedContext cache : result) {
+              cacheNamesList.add(cache.getName());
+            }
+            String[] cacheNames = cacheNamesList.toArray(new String[0]);
+            new AlertDialog.Builder(OpenPromptActivity.this)
+                .setTitle("Select Cache")
+                .setItems(cacheNames, (dialog, which) -> prefixEditText.setText(cacheNames[which]))
+                .show();
+          }
+
+          @Override
+          public void onFailure(Throwable t) {
+            Toast.makeText(OpenPromptActivity.this, "Failed to list caches", Toast.LENGTH_SHORT)
+                .show();
+          }
+        },
+        ContextCompat.getMainExecutor(this));
+  }
+
+  private void updatePrefixEditTextState() {
+    if (useExplicitCache && !createCacheCheckBox.isChecked()) {
+      prefixEditText.setFocusable(false);
+      prefixEditText.setClickable(true);
+      prefixEditText.setOnClickListener(v -> showCacheSelectionDialog());
+      prefixEditText.setHint(R.string.hint_select_cache_name);
+    } else {
+      prefixEditText.setFocusable(true);
+      prefixEditText.setFocusableInTouchMode(true);
+      prefixEditText.setClickable(false);
+      prefixEditText.setOnClickListener(null);
+      if (useExplicitCache) {
+        prefixEditText.setHint(R.string.hint_add_cache_name);
+      } else {
+        prefixEditText.setHint(R.string.hint_add_prompt_prefix);
+      }
+    }
   }
 
   @Override
@@ -188,6 +316,9 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
   @Override
   protected ListenableFuture<List<String>> runInferenceImpl(
       ContentItem request, @Nullable StreamingCallback streamingCallback) {
+    if (request instanceof ContentItem.CacheRequestItem cacheRequestItem) {
+      return createCache(cacheRequestItem);
+    }
     try {
       ListenableFuture<GenerateContentResponse> inferenceFuture;
       if (request instanceof ContentItem.TextItem textItem && useDefaultConfig) {
@@ -231,6 +362,10 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
 
   @Override
   protected ListenableFuture<CountTokensResponse> countTokens(ContentItem request) {
+    if (request instanceof ContentItem.CacheRequestItem) {
+      // Count tokens does not support for cache request by now.
+      return immediateFuture(new CountTokensResponse(0));
+    }
     try {
       GenerateContentRequest genRequest = buildGenerateContentRequest(request);
       return generativeModelFutures.countTokens(genRequest);
@@ -252,6 +387,7 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
     String requestText = "";
     String promptPrefixText = "";
     Bitmap imageBitmap = null;
+    String cachedContextNameText = null;
     if (request instanceof ContentItem.TextAndImagesItem tiRequest) {
       if (tiRequest.getText() != null) {
         requestText = tiRequest.getText();
@@ -268,6 +404,11 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
     } else if (request instanceof ContentItem.TextWithPromptPrefixItem textWithPromptPrefixItem) {
       requestText = textWithPromptPrefixItem.getDynamicSuffix();
       promptPrefixText = textWithPromptPrefixItem.getPromptPrefix();
+    } else if (request instanceof ContentItem.TextWithPrefixCacheItem textWithPrefixCacheItem) {
+      requestText = textWithPrefixCacheItem.getDynamicSuffix();
+      cachedContextNameText = textWithPrefixCacheItem.getCacheName();
+    } else if (request instanceof ContentItem.CacheRequestItem) {
+      throw new IllegalArgumentException("CacheRequestItem is for creating cache only.");
     }
 
     GenerateContentRequest.Builder requestBuilder;
@@ -277,7 +418,11 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
           new GenerateContentRequest.Builder(new ImagePart(imageBitmap), new TextPart(requestText));
     } else {
       requestBuilder = new GenerateContentRequest.Builder(new TextPart(requestText));
-      requestBuilder.setPromptPrefix(new PromptPrefix(promptPrefixText));
+      if (useExplicitCache) {
+        requestBuilder.setCachedContextName(cachedContextNameText);
+      } else {
+        requestBuilder.setPromptPrefix(new PromptPrefix(promptPrefixText));
+      }
     }
 
     requestBuilder.setTemperature(curTemperature);
@@ -345,7 +490,21 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
 
     GenerativeModel generativeModel = Generation.INSTANCE.getClient(optionsBuilder.build());
     this.generativeModelFutures = GenerativeModelFutures.from(generativeModel);
+    this.cachesFutures = CachesFutures.from(generativeModel);
     resetProcessor();
+  }
+
+  private ListenableFuture<List<String>> createCache(ContentItem.CacheRequestItem request) {
+    CreateCachedContextRequest cacheRequest =
+        new CreateCachedContextRequest.Builder(
+                request.getCacheName(), new PromptPrefix(request.getPrefixToCache()))
+            .build();
+
+    String cachedSuccessMessage = getString(R.string.prefix_cached) + ": " + request.getCacheName();
+    return Futures.transform(
+        cachesFutures.create(cacheRequest),
+        response -> ImmutableList.of(cachedSuccessMessage),
+        ContextCompat.getMainExecutor(this));
   }
 
   @Override
@@ -379,27 +538,29 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
       item.setVisible(true);
       item.setChecked(useDefaultConfig);
     }
+    MenuItem explicitCacheItem = menu.findItem(R.id.action_explicit_cache);
+    if (explicitCacheItem != null) {
+      explicitCacheItem.setVisible(true);
+      explicitCacheItem.setEnabled(!useDefaultConfig);
+      explicitCacheItem.setChecked(useExplicitCache);
+    }
     return super.onPrepareOptionsMenu(menu);
   }
 
   @Override
   public boolean onOptionsItemSelected(MenuItem item) {
     if (item.getItemId() == ACTION_CLEAR_CACHES) {
-      Futures.addCallback(
-          generativeModelFutures.clearCaches(),
-          new FutureCallback<Void>() {
-            @Override
-            public void onSuccess(Void result) {
-              Toast.makeText(OpenPromptActivity.this, "Caches cleared", Toast.LENGTH_SHORT).show();
-            }
-
-            @Override
-            public void onFailure(Throwable t) {
-              Toast.makeText(OpenPromptActivity.this, "Failed to clear caches", Toast.LENGTH_SHORT)
-                  .show();
-            }
-          },
-          ContextCompat.getMainExecutor(this));
+      if (useExplicitCache) {
+        Futures.addCallback(
+            cachesFutures.list(),
+            generateExplicitCachesClearCallback(),
+            ContextCompat.getMainExecutor(this));
+      } else {
+        Futures.addCallback(
+            generativeModelFutures.clearImplicitCaches(),
+            generateImplicitCachesClearCallback(),
+            ContextCompat.getMainExecutor(this));
+      }
       return true;
     } else if (item.getItemId() == R.id.action_simple_api) {
       boolean newState = !item.isChecked();
@@ -407,7 +568,84 @@ public class OpenPromptActivity extends BaseActivity<ContentItem>
       GenerationConfigUtils.setUseDefaultConfig(getApplicationContext(), newState);
       onConfigUpdated();
       return true;
+    } else if (item.getItemId() == R.id.action_explicit_cache) {
+      boolean newState = !item.isChecked();
+      item.setChecked(newState);
+      GenerationConfigUtils.setUseExplicitCache(getApplicationContext(), newState);
+      onConfigUpdated();
+      return true;
     }
     return super.onOptionsItemSelected(item);
+  }
+
+  private FutureCallback<List<CachedContext>> generateExplicitCachesClearCallback() {
+    return new FutureCallback<>() {
+      @Override
+      public void onSuccess(List<CachedContext> result) {
+        if (result != null && !result.isEmpty()) {
+          Log.d(TAG, "Going to delete explicit caches, size: " + result.size());
+          List<ListenableFuture<Boolean>> deleteFutures = new ArrayList<>();
+          for (CachedContext cache : result) {
+            String cacheName = cache.getName();
+            ListenableFuture<Boolean> deleteFuture = cachesFutures.delete(cacheName);
+            deleteFutures.add(deleteFuture);
+            Futures.addCallback(
+                deleteFuture,
+                generateExplicitCacheDeleteCallback(cacheName),
+                ContextCompat.getMainExecutor(OpenPromptActivity.this));
+          }
+          var unused =
+              Futures.whenAllComplete(deleteFutures)
+                  .run(
+                      () -> {
+                        prefixEditText.setText("");
+                        Toast.makeText(
+                                OpenPromptActivity.this, "Caches cleared", Toast.LENGTH_SHORT)
+                            .show();
+                      },
+                      ContextCompat.getMainExecutor(OpenPromptActivity.this));
+        } else {
+          Toast.makeText(OpenPromptActivity.this, "No caches to clear", Toast.LENGTH_SHORT).show();
+        }
+      }
+
+      @Override
+      public void onFailure(Throwable t) {
+        Toast.makeText(OpenPromptActivity.this, "Failed to list caches", Toast.LENGTH_SHORT).show();
+      }
+    };
+  }
+
+  private FutureCallback<Boolean> generateExplicitCacheDeleteCallback(String cacheName) {
+    return new FutureCallback<>() {
+      @Override
+      public void onSuccess(Boolean deleted) {
+        if (deleted) {
+          Log.d(TAG, "Deleted explicit cache: " + cacheName);
+        } else {
+          Log.d(TAG, "Failed to delete explicit cache: " + cacheName);
+        }
+      }
+
+      @Override
+      public void onFailure(Throwable t) {
+        Log.d(TAG, "Failed to delete explicit cache: " + cacheName, t);
+      }
+    };
+  }
+
+  private FutureCallback<Void> generateImplicitCachesClearCallback() {
+    return new FutureCallback<Void>() {
+      @Override
+      public void onSuccess(Void result) {
+        Toast.makeText(OpenPromptActivity.this, "Caches cleared", Toast.LENGTH_SHORT).show();
+      }
+
+      @Override
+      public void onFailure(Throwable t) {
+        Toast.makeText(OpenPromptActivity.this, "Failed to clear caches", Toast.LENGTH_SHORT)
+            .show();
+      }
+    };
   }
 }

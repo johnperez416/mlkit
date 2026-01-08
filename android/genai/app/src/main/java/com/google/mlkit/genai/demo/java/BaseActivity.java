@@ -431,7 +431,8 @@ abstract class BaseActivity<RequestT extends ContentItem> extends AppCompatActiv
     spinner.setOnItemSelectedListener(
         new AdapterView.OnItemSelectedListener() {
           @Override
-          public void onItemSelected(AdapterView<?> adapterView, View view, int position, long id) {
+          public void onItemSelected(
+              AdapterView<?> adapterView, @Nullable View view, int position, long id) {
             onItemSelected.accept(position);
           }
 
