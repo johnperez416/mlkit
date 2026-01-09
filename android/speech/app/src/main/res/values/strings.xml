@@ -1,0 +1,35 @@
+<!-- Copyright 2025 The Android Open Source Project
+
+     Licensed under the Apache License, Version 2.0 (the "License");
+     you may not use this file except in compliance with the License.
+     You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+     Unless required by applicable law or agreed to in writing, software
+     distributed under the License is distributed on an "AS IS" BASIS,
+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     See the License for the specific language governing permissions and
+     limitations under the License. -->
+<resources>
+    <string name="app_name">SpeechDemo</string>
+    <string
+        name="text_start_recording"
+        description="Text for the button to start recording. [CHAR LIMIT=NONE]">Start Recording</string>
+    <string
+        name="text_stop_recording"
+        description="Text for the button to stop recording. [CHAR LIMIT=NONE]">Stop Recording</string>
+    <string
+        name="text_status_running"
+        description="Text to indicate app is running. [CHAR LIMIT=NONE]">Running&#8230;</string>
+    <string
+        name="text_transcription_format"
+        description="Text for transcription format. [CHAR LIMIT=NONE]">%1$s %2$s</string>
+    <string
+        name="text_error_create_file"
+        description="Text to indicate error creating file. [CHAR LIMIT=NONE]">Error creating file</string>
+    <string
+        name="text_error_format"
+        description="Text to indicate error creating file. [CHAR LIMIT=NONE]">Error: %1$s Error code: %2$d</string>
+    <string name="speech_recognition_title">Speech Recognition</string>
+</resources>
